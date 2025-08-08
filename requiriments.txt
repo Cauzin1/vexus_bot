@@ -1,0 +1,5 @@
+Flask[async]
+python-telegram-bot
+gunicorn
+gevent
+python-dotenv
