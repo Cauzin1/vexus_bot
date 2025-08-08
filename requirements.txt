@@ -3,3 +3,4 @@ python-telegram-bot
 gunicorn
 gevent
 python-dotenv
+google-generativeai
