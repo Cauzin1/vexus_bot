@@ -1,68 +1,104 @@
-# app.py - TESTE FINAL: BOT ECO
+# app.py - Versão final completa
 
 import os
+import re
 import traceback
-from flask import Flask, request
+import asyncio
+from flask import Flask, request, send_from_directory
 from dotenv import load_dotenv
+import google.generativeai as genai
 
 import telegram
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
+# --- UTILS (Copiado para dentro do app.py para simplificar) ---
+def validar_destino(texto: str) -> bool:
+    paises = ["italia", "franca", "espanha", "portugal", "alemanha"]
+    return texto.lower().strip() in paises
+
+def validar_data(texto: str) -> bool:
+    return re.match(r"^\d{1,2}/\d{1,2}\s*a\s*\d{1,2}/\d{1,2}$", texto.strip()) is not None
+
+def validar_orcamento(texto: str) -> bool:
+    return any(char.isdigit() for char in texto)
+
 # --- Configuração ---
 load_dotenv()
+GEMINI_KEY = os.getenv("GEMINI_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 app = Flask(__name__)
+sessoes = {}
 
-# --- Lógica do Bot Eco ---
-if not TELEGRAM_TOKEN:
-    raise ValueError("TELEGRAM_TOKEN não foi encontrado nas variáveis de ambiente!")
+# --- Inicialização dos Serviços ---
+try:
+    if not GEMINI_KEY: raise ValueError("GEMINI_KEY não encontrada!")
+    genai.configure(api_key=GEMINI_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    print("✅ Gemini configurado com sucesso!")
+except Exception as e:
+    model = None
+    print(f"❌ Erro na configuração do Gemini: {e}")
 
-# Constrói a aplicação do bot com o token
+if not TELEGRAM_TOKEN: raise ValueError("TELEGRAM_TOKEN não encontrado!")
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-# Esta é a única função do bot: responder com a mesma mensagem
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+# --- Lógica do Bot (Cérebro) ---
+def processar_mensagem(session_id: str, texto: str) -> str:
+    # Lógica de estados simplificada para garantir funcionamento
+    if session_id not in sessoes:
+        sessoes[session_id] = {'estado': 'AGUARDANDO_DESTINO'}
+    
+    estado = sessoes[session_id].get('estado')
+    texto_normalizado = texto.strip().lower()
+
+    if texto_normalizado == "reiniciar":
+        sessoes[session_id]['estado'] = 'AGUARDANDO_DESTINO'
+        return "🔄 Certo! Vamos recomeçar. Para qual país da Europa você quer viajar?"
+
+    if estado == 'AGUARDANDO_DESTINO':
+        if validar_destino(texto_normalizado):
+            sessoes[session_id]['estado'] = 'FEITO'
+            return f"Ótima escolha! O roteiro para {texto.title()} seria gerado aqui. Para reiniciar, digite 'reiniciar'."
+        else:
+            return "❌ País não reconhecido. Tente Itália, França, Espanha, Portugal ou Alemanha."
+    
+    return "Seu roteiro foi gerado. Para começar um novo, digite 'reiniciar'."
+
+
+# --- Gerenciador de Mensagens do Telegram ---
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session_id = str(update.message.chat_id)
     texto_recebido = update.message.text
     
-    # Imprime no log para sabermos que a mensagem chegou
-    print(f"--- MENSAGEM RECEBIDA --- Chat ID: {session_id}, Texto: '{texto_recebido}'")
-    
     try:
-        # Tenta enviar a mensagem de volta
-        await context.bot.send_message(
-            chat_id=session_id,
-            text=f"Eco: {texto_recebido}" # Simplesmente responde com a mensagem recebida
-        )
-        print(f"--- RESPOSTA ECO ENVIADA COM SUCESSO ---")
-    except Exception as e:
-        # Se falhar ao enviar, o erro aparecerá aqui
-        print(f"!!!!!!!!!! ERRO AO ENVIAR MENSAGEM DE ECO: {e} !!!!!!!!!!")
-        traceback.print_exc()
+        # Primeiro, um "eco" para garantir que o bot está vivo
+        await context.bot.send_message(chat_id=session_id, text=f"Eco: {texto_recebido}")
+        
+        # Agora, a lógica real
+        if session_id not in sessoes:
+            sessoes[session_id] = {'estado': 'AGUARDANDO_DESTINO'}
+            resposta = ("🌟 Olá! Eu sou o vIAjante.\n\nPara começar, para qual país você quer viajar?")
+        else:
+            resposta = processar_mensagem(session_id, texto_recebido)
 
-# Adiciona o gerenciador de mensagens à aplicação
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+        await context.bot.send_message(
+            chat_id=session_id, text=resposta, parse_mode=telegram.constants.ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        print(f"!!!!!!!!!! ERRO NO HANDLE: {e} !!!!!!!!!!"); traceback.print_exc()
+        await context.bot.send_message(chat_id=session_id, text="Ocorreu um erro interno.")
+
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 
 # --- Rotas Flask ---
 @app.route('/telegram_webhook', methods=['POST'])
 async def telegram_webhook():
-    # Processa a atualização recebida do Telegram
     await application.update_queue.put(Update.de_json(request.get_json(force=True), application.bot))
     return "ok", 200
 
-# Rota para configurar o webhook (você chama uma vez após o deploy)
-@app.route('/set_webhook', methods=['GET'])
-async def set_webhook():
-    if WEBHOOK_URL:
-        webhook_full_url = f"{WEBHOOK_URL}/telegram_webhook"
-        await application.bot.set_webhook(webhook_full_url)
-        return f"Webhook configurado para: {webhook_full_url}"
-    return "WEBHOOK_URL não configurado.", 500
-
 @app.route('/')
-def index():
-    # Uma página simples para sabermos que o servidor está no ar
-    return "Servidor do Bot Eco está no ar!", 200
+def index(): return "Servidor do vIAjante está no ar!"
