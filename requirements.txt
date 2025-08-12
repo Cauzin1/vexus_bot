@@ -1,0 +1,9 @@
+pyTelegramBotAPI
+google-generativeai
+python-dotenv
+pyTelegramBotAPI
+google-generativeai
+weasyprint
+gunicorn
+requests
+gevent
