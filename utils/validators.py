@@ -13,10 +13,6 @@ def remover_acentos(texto: str) -> str:
     nfkd_form = unicodedata.normalize('NFKD', texto)
     return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
 
-def validar_destino(texto: str) -> bool:
-    texto_normalizado = remover_acentos(texto.lower().strip())
-    return texto_normalizado in PAISES_EUROPA
-
 def validar_data(texto: str) -> bool:
     return re.match(r"^\d{1,2}/\d{1,2}\s*a\s*\d{1,2}/\d{1,2}$", texto.strip()) is not None
 
