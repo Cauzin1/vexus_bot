@@ -319,3 +319,4 @@ while True:
     except Exception as e:
         print(f"Erro de conexão/polling: {e}. Reiniciando em 15 segundos...")
         time.sleep(15)
+#testefinal
