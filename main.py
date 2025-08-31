@@ -1,4 +1,4 @@
-# main.py - vIAjante - Versão 100% Completa com Menu de Botões
+# main.py - vIAjante - Versão Final com Botões, Tabela Formatada e IA Completa
 
 import os
 import re
@@ -11,22 +11,20 @@ from datetime import datetime
 from dotenv import load_dotenv
 import google.generativeai as genai
 import telebot
-from telebot import types
+from telebot import types # Importação para os botões
 
 # --- UTILS ---
-# Certifique-se de que a pasta 'utils' com estes arquivos está no seu projeto
 from utils.pdf_generator import gerar_pdf
 from utils.csv_generator import csv_generator
-from utils.validators import remover_acentos
+from utils.validators import remover_acentos # Apenas o que for necessário
 
 # --- Configuração ---
 load_dotenv()
 GEMINI_KEY = os.getenv("GEMINI_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-
-if not GEMINI_KEY or not TELEGRAM_TOKEN:
-    print("ERRO CRÍTICO: Verifique suas chaves GEMINI_KEY e TELEGRAM_TOKEN no arquivo .env!")
-    exit()
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
+sessoes = {} # Memória de curto prazo para dados do roteiro
+historico_conversa = {} # Memória de contexto da conversa atual
 
 try:
     genai.configure(api_key=GEMINI_KEY)
@@ -35,9 +33,6 @@ try:
 except Exception as e:
     print(f"❌ Erro na configuração do Gemini: {e}"); exit()
 
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
-print("✅ Bot do Telegram iniciado com sucesso!")
-
 # --- BANCO DE DADOS (MEMÓRIA DE LONGO PRAZO) ---
 def inicializar_banco():
     conexao = sqlite3.connect('usuarios.db', check_same_thread=False)
@@ -45,8 +40,7 @@ def inicializar_banco():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY, chat_id TEXT UNIQUE NOT NULL, nome TEXT,
-            idade INTEGER, acompanhantes TEXT, estilo_viagem TEXT,
-            tipo_comida TEXT, interesses TEXT
+            estilo_viagem TEXT, interesses TEXT
         )
     ''')
     conexao.commit(); conexao.close()
@@ -67,8 +61,7 @@ def carregar_preferencias(chat_id):
     cursor.execute("SELECT * FROM usuarios WHERE chat_id = ?", (str(chat_id),))
     resultado = cursor.fetchone()
     conexao.close()
-    if resultado:
-        return dict(resultado)
+    if resultado: return dict(resultado)
     return {}
 
 # --- FUNÇÕES DE AJUDA E IA ---
@@ -85,28 +78,25 @@ def extrair_tabela(texto: str) -> str:
     return '\n'.join(linhas_tabela)
 
 def formatar_tabela_para_telegram(tabela_markdown: str) -> str:
+    """Converte uma tabela Markdown para texto monoespaçado e alinhado."""
     if not tabela_markdown: return ""
     linhas = [l for l in tabela_markdown.strip().split('\n') if not re.match(r'^[|: -]+$', l.replace(" ", ""))]
     dados_tabela = [[cel.strip() for cel in linha.split('|') if cel.strip()] for linha in linhas if '|' in linha]
     if not dados_tabela: return ""
+    
     try:
-        num_colunas_header = len(dados_tabela[0])
-        larguras = [0] * num_colunas_header
-        for linha in dados_tabela:
-            for i, celula in enumerate(linha):
-                if i < num_colunas_header and len(celula) > larguras[i]:
-                    larguras[i] = len(celula)
+        num_colunas = len(dados_tabela[0])
+        larguras = [max(len(dados_tabela[i][j]) for i in range(len(dados_tabela))) for j in range(num_colunas)]
         tabela_formatada = ""
         for i, linha in enumerate(dados_tabela):
-            while len(linha) < num_colunas_header: linha.append("")
-            linha_formatada = [celula.ljust(larguras[j]) for j, celula in enumerate(linha[:num_colunas_header])]
+            linha_formatada = [celula.ljust(larguras[j]) for j, celula in enumerate(linha)]
             tabela_formatada += "  ".join(linha_formatada) + "\n"
             if i == 0:
-                separador = ["-" * larguras[j] for j in range(num_colunas_header)]
+                separador = ["-" * larguras[j] for j in range(num_colunas)]
                 tabela_formatada += "  ".join(separador) + "\n"
         return f"```\n{tabela_formatada}```"
     except IndexError:
-        return tabela_markdown
+        return "Tabela com formato inesperado."
 
 def validar_e_extrair_destinos_com_ia(texto_usuario: str) -> dict:
     prompt = f'Analise o texto e identifique cidades e países. Retorne APENAS um JSON com chaves "cidades" e "paises". Texto: "{texto_usuario}"'
@@ -114,8 +104,7 @@ def validar_e_extrair_destinos_com_ia(texto_usuario: str) -> dict:
         response = model.generate_content(prompt)
         json_text = re.search(r'\{.*\}', response.text, re.DOTALL).group(0)
         return json.loads(json_text)
-    except Exception as e:
-        print(f"ERRO AO VALIDAR DESTINO COM IA: {e}"); return {"cidades": [], "paises": []}
+    except Exception: return {"cidades": [], "paises": []}
 
 def extrair_datas_com_ia(texto_usuario: str) -> dict:
     data_atual = datetime.now().strftime('%d/%m/%Y')
@@ -124,8 +113,7 @@ def extrair_datas_com_ia(texto_usuario: str) -> dict:
         response = model.generate_content(prompt)
         json_text = re.search(r'\{.*\}', response.text, re.DOTALL).group(0)
         return json.loads(json_text)
-    except Exception as e:
-        print(f"ERRO AO EXTRAIR DATAS COM IA: {e}"); return {"data_inicio": "", "data_fim": ""}
+    except Exception: return {"data_inicio": "", "data_fim": ""}
 
 def extrair_orcamento_com_ia(texto_usuario: str) -> int:
     prompt = f'Extraia o valor monetário do texto como um número inteiro. "20 mil" é 20000. Responda APENAS com um JSON com a chave "valor". Texto: "{texto_usuario}"'
@@ -133,8 +121,7 @@ def extrair_orcamento_com_ia(texto_usuario: str) -> int:
         response = model.generate_content(prompt)
         json_text = re.search(r'\{.*\}', response.text, re.DOTALL).group(0)
         return int(json.loads(json_text).get("valor", 0))
-    except Exception as e:
-        print(f"ERRO AO EXTRAIR ORÇAMENTO COM IA: {e}"); return 0
+    except Exception: return 0
 
 # --- CÉREBRO DO BOT ---
 def processar_mensagem(session_id: str, texto: str, nome_usuario: str) -> str:
@@ -196,32 +183,34 @@ def processar_mensagem(session_id: str, texto: str, nome_usuario: str) -> str:
             
             resumo_formatado = formatar_tabela_para_telegram(tabela_bruta) if tabela_bruta else "**Não foi possível extrair um resumo em tabela.**"
             
-            return f"🎉 *Prontinho!* Seu roteiro personalizado está pronto:\n\n{resumo_formatado}"
+            return (f"🎉 *Prontinho!* Seu roteiro personalizado está pronto:\n\n{resumo_formatado}\n\n"
+                    "O que fazer agora?\n- Digite `pdf` para o roteiro completo\n- Digite `csv` para a planilha\n- Digite `reiniciar`.")
         except Exception as e:
             traceback.print_exc()
             sessoes[session_id]['estado'] = "AGUARDANDO_DESTINO"; return "❌ Opa! Tive um problema ao gerar o roteiro. Vamos recomeçar?"
 
     elif estado == "ROTEIRO_GERADO":
-        # Retorna None pois as opções serão mostradas nos botões
-        return None
+        return "Seu roteiro foi gerado. Peça seu `pdf`, `csv` ou digite `reiniciar`."
 
     return "Desculpe, não entendi."
 
 # --- Gerenciadores de Mensagem do Telegram (Handlers) ---
-@bot.message_handler(commands=['start', 'help', 'iniciar'])
+
+@bot.message_handler(commands=['start', 'help', 'iniciar', 'reiniciar'])
 def handle_start(message: telebot.types.Message):
-    global sessoes
     session_id = str(message.chat.id)
     nome_usuario = message.from_user.first_name
     preferencias = carregar_preferencias(session_id)
     
-    if preferencias and preferencias.get('estilo_viagem'):
-        sessoes[session_id] = {'estado': 'AGUARDANDO_DESTINO', 'dados': {}}
-        estilo = preferencias['estilo_viagem']
+    sessoes[session_id] = {} # Limpa os dados do roteiro atual
+    historico_conversa[session_id] = [] # Limpa o histórico da conversa
+
+    if preferencias:
+        estilo = preferencias.get('estilo_viagem', 'desconhecido')
         bot.reply_to(message, f"👋 Bem-vindo de volta, {nome_usuario}! Vi aqui que você curte viagens no estilo *{estilo}*. Para onde vamos dessa vez?", parse_mode='Markdown')
     else:
         salvar_preferencia(session_id, 'nome', nome_usuario)
-        handle_perfil(message)
+        handle_perfil(message) # Chama diretamente o handler de perfil
 
 @bot.message_handler(commands=['perfil'])
 def handle_perfil(message: telebot.types.Message):
@@ -236,87 +225,51 @@ def handle_perfil(message: telebot.types.Message):
     markup.add(b1, b2, b3, b4)
     bot.send_message(message.chat.id, "Vamos personalizar sua experiência! Qual seu estilo de viagem preferido?", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callback_query(call: types.CallbackQuery):
+@bot.callback_query_handler(func=lambda call: call.data.startswith("estilo_"))
+def handle_estilo_callback(call: types.CallbackQuery):
     global sessoes
     session_id = str(call.message.chat.id)
     nome_usuario = call.from_user.first_name
-    dados_usuario = sessoes.get(session_id, {}).get('dados', {})
-
-    if call.data.startswith("estilo_"):
-        estilo_selecionado = call.data.split('_')[1]
-        bot.answer_callback_query(call.id, text=f"{estilo_selecionado} selecionado!")
-        salvar_preferencia(session_id, 'estilo_viagem', estilo_selecionado)
-        sessoes[session_id]['estado'] = "BRIEFING_TIPO_COMIDA"
-        bot.edit_message_text(f"Legal, {nome_usuario}! Anotei seu estilo: *{estilo_selecionado}*.", 
-                              call.message.chat.id, call.message.message_id, parse_mode='Markdown')
-        bot.send_message(session_id, "Agora, que tipo de comida você mais gosta? (Ex: `Local`, `Italiana`, `Asiática`)", parse_mode='Markdown')
-        return
-
-    if call.data in ["gerar_pdf", "gerar_csv"]:
-        tipo_arquivo = call.data.split('_')[1]
-        bot.answer_callback_query(call.id, text=f"Gerando seu {tipo_arquivo.upper()}...")
-        bot.send_chat_action(session_id, 'upload_document')
-        
-        if tipo_arquivo == 'pdf':
-            caminho_arquivo = gerar_pdf(
-                destino=dados_usuario['destino'], datas=dados_usuario['datas'],
-                tabela=dados_usuario['tabela_itinerario'], descricao=dados_usuario['descricao_detalhada'],
-                session_id=session_id)
-        else: # csv
-            caminho_arquivo = csv_generator(
-                tabela=dados_usuario['tabela_itinerario'], session_id=session_id)
-        
-        with open(caminho_arquivo, 'rb') as arquivo:
-            bot.send_document(session_id, arquivo)
-        os.remove(caminho_arquivo)
-        return
-
-    if call.data == "novo_roteiro":
-        bot.answer_callback_query(call.id)
-        sessoes[session_id] = {'estado': 'AGUARDANDO_DESTINO', 'dados': {}}
-        bot.edit_message_text("Ok, vamos planejar uma nova aventura! Para qual destino?", 
-                              call.message.chat.id, call.message.message_id)
-        return
-
-    if call.data == "sair":
-        bot.answer_callback_query(call.id)
-        sessoes.pop(session_id, None)
-        bot.edit_message_text("Tudo bem! Fico feliz em ajudar. Até a próxima! 👋", 
-                              call.message.chat.id, call.message.message_id)
-        return
+    estilo_selecionado = call.data.split('_')[1]
+    
+    bot.answer_callback_query(call.id, text=f"{estilo_selecionado} selecionado!")
+    salvar_preferencia(session_id, 'estilo_viagem', estilo_selecionado)
+    sessoes[session_id]['estado'] = "BRIEFING_TIPO_COMIDA"
+    
+    bot.edit_message_text(f"Legal, {nome_usuario}! Anotei seu estilo: *{estilo_selecionado}*.", 
+                          call.message.chat.id, call.message.message_id, parse_mode='Markdown')
+    bot.send_message(session_id, "Agora, que tipo de comida você mais gosta em suas viagens? (Ex: `Local`, `Italiana`, `Asiática`)", parse_mode='Markdown')
 
 @bot.message_handler(func=lambda message: True)
 def handle_messages(message: telebot.types.Message):
-    global sessoes
     session_id = str(message.chat.id)
     nome_usuario = message.from_user.first_name
-    
+    texto_normalizado = message.text.strip().lower()
+    estado_atual = sessoes.get(session_id, {}).get('estado')
+
     try:
+        if estado_atual == "ROTEIRO_GERADO" and texto_normalizado in ['pdf', 'csv']:
+            bot.reply_to(message, f"Gerando seu arquivo `{texto_normalizado}`, um momento...")
+            dados_usuario = sessoes[session_id]['dados']
+            if texto_normalizado == 'pdf':
+                caminho_arquivo = gerar_pdf(
+                    destino=dados_usuario['destino'], datas=dados_usuario['datas'],
+                    tabela=dados_usuario['tabela_itinerario'], descricao=dados_usuario['descricao_detalhada'],
+                    session_id=session_id)
+            else:
+                caminho_arquivo = csv_generator(tabela=dados_usuario['tabela_itinerario'], session_id=session_id)
+            with open(caminho_arquivo, 'rb') as arquivo:
+                bot.send_document(message.chat.id, arquivo)
+            os.remove(caminho_arquivo)
+            return
+
         resposta = processar_mensagem(session_id, message.text, nome_usuario)
+        bot.reply_to(message, resposta, parse_mode='Markdown')
         
-        if resposta:
-            bot.reply_to(message, resposta, parse_mode='Markdown')
-
-        if sessoes.get(session_id, {}).get('estado') == 'ROTEIRO_GERADO':
-            markup = types.InlineKeyboardMarkup(row_width=2)
-            b1 = types.InlineKeyboardButton("📄 Gerar PDF", callback_data="gerar_pdf")
-            b2 = types.InlineKeyboardButton("📊 Gerar CSV", callback_data="gerar_csv")
-            b3 = types.InlineKeyboardButton("✈️ Novo Roteiro", callback_data="novo_roteiro")
-            b4 = types.InlineKeyboardButton("👋 Sair", callback_data="sair")
-            markup.add(b1, b2, b3, b4)
-            bot.send_message(session_id, "O que você gostaria de fazer agora?", reply_markup=markup)
-
     except Exception as e:
         print(f"!!!!!!!!!! ERRO GERAL NO HANDLE: {e} !!!!!!!!!!"); traceback.print_exc()
-        bot.reply_to(message, "Desculpe, ocorreu um erro inesperado. Tente `reiniciar`.")
+        bot.reply_to(message, "Desculpe, ocorreu um erro. Tente `reiniciar`.")
 
 # --- Inicia o Bot ---
-print("Bot VexusBot (Versão Final Completa) em execução...")
-while True:
-    try:
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    except Exception as e:
-        print(f"Erro de conexão/polling: {e}. Reiniciando em 15 segundos...")
-        time.sleep(15)
-#testefinal
+print("Bot vIAjante (Versão Final com Botões) em execução...")
+bot.infinity_polling()
