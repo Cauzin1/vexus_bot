@@ -7,3 +7,7 @@ weasyprint
 gunicorn
 requests
 gevent
+langchain
+langchain-google-genai
+langchain_community
+faiss-cpu
