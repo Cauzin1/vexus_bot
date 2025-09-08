@@ -32,6 +32,7 @@ GEMINI_KEY = os.getenv("GEMINI_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")               # ex.: https://seuservico.onrender.com/webhook
 RUN_MODE = os.getenv("RUN_MODE", "polling").lower()  # "webhook" ou "polling"
+USE_FLASK_RUN = os.getenv("USE_FLASK_RUN", "0")      # "1" só para rodar webhook localmente sem gunicorn
 
 if not GEMINI_KEY or not TELEGRAM_TOKEN:
     print("ERRO CRÍTICO: Verifique suas chaves GEMINI_KEY e TELEGRAM_TOKEN no arquivo .env!")
@@ -137,9 +138,12 @@ def registrar_webhook():
         return
     url_final = WEBHOOK_URL.rstrip("/") + f"/{TELEGRAM_TOKEN}"
     try:
-        resp = requests.get(
+        # zera o anterior (evita lixo de testes locais)
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook", timeout=15)
+        # registra novo
+        resp = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-            params={"url": url_final},
+            data={"url": url_final},
             timeout=20,
         )
         print("setWebhook:", resp.status_code, resp.text)
@@ -151,9 +155,9 @@ if RUN_MODE == "webhook":
     def telegram_webhook(token):
         if token != TELEGRAM_TOKEN:
             return "forbidden", 403
-        update = request.get_data().decode("utf-8")
+        update_str = request.get_data(as_text=True)
         try:
-            bot.process_new_updates([telebot.types.Update.de_json(update)])
+            bot.process_new_updates([telebot.types.Update.de_json(update_str)])
         except Exception as e:
             print("Erro processando update:", e)
         return "ok", 200
@@ -682,7 +686,7 @@ Para voltar a este menu, basta usar o comando /start."""
         bot.edit_message_reply_markup(chat_id=session_id, message_id=call.message.message_id, reply_markup=markup)
 
     elif call.data in ["gerar_pdf", "gerar_csv"]:
-        import os as _os  # para remover arquivo depois
+        import os as _os
         bot.send_chat_action(session_id, 'upload_document')
         tipo_arquivo = call.data.split('_')[1]
         dados = sessoes.get(session_id, {}).get('dados', {})
@@ -773,7 +777,10 @@ print("VexusBot (Versão Avançada) em execução...")
 
 if RUN_MODE == "webhook":
     registrar_webhook()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
+    # Em produção (Render), use gunicorn: startCommand -> gunicorn main:app
+    # Para executar localmente sem gunicorn, exporte USE_FLASK_RUN=1
+    if USE_FLASK_RUN == "1":
+        app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
 else:
     while True:
         try:
