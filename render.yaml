@@ -1,25 +1,20 @@
 services:
-  - type: worker
-    name: vexusbot-worker
+  - type: web
+    name: vexusbot-web
     env: python
-    plan: starter            # pode usar free, mas disco precisa de starter+
+    plan: free
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-    startCommand: python main.py
+    startCommand: gunicorn -w 1 -k gthread main:app --bind 0.0.0.0:$PORT --timeout 120
     envVars:
       - key: GEMINI_KEY
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
-      # Para o código salvar DB e arquivos no disco persistente
-      - key: DATA_DIR
-        value: /data
-      # (Opcional) se um dia usar webhook:
+      - key: RUN_MODE
+        value: webhook
+      # coloque aqui a URL base do seu serviço no Render, SEM o token no final:
+      # ex.: https://vexus-bot-next-gen.onrender.com/webhook
       - key: WEBHOOK_URL
-        sync: false
-    # Disco persistente (SINGULAR: disk)
-    disk:
-      name: data
-      mountPath: /data
-      sizeGB: 1
+        value: https://SEU-SERVICO.onrender.com/webhook

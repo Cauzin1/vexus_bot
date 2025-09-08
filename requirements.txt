@@ -2,6 +2,7 @@ pyTelegramBotAPI
 python-dotenv
 gunicorn
 requests
+Flask
 gevent
 langchain_community
 google-generativeai>=0.7.2

@@ -1,4 +1,5 @@
-# main.py - VexusBot - Versão 100% Completa, Final, sem Omissões (com painel RAG, guardas e datas DD/MM a DD/MM)
+# main.py - VexusBot - Versão 100% Completa, Final, sem Omissões
+# (com painel RAG, guardas, datas DD/MM a DD/MM e suporte webhook/polling)
 
 import os
 import re
@@ -17,6 +18,10 @@ from langchain.schema.runnable import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
 from telebot.apihelper import ApiTelegramException
 
+# --- WEBHOOK ---
+import requests
+from flask import Flask, request
+
 # --- UTILS ---
 from utils.pdf_generator import gerar_pdf
 from utils.csv_generator import csv_generator
@@ -25,7 +30,8 @@ from utils.csv_generator import csv_generator
 load_dotenv()
 GEMINI_KEY = os.getenv("GEMINI_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # não usado neste modo (polling)
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")               # ex.: https://seuservico.onrender.com/webhook
+RUN_MODE = os.getenv("RUN_MODE", "polling").lower()  # "webhook" ou "polling"
 
 if not GEMINI_KEY or not TELEGRAM_TOKEN:
     print("ERRO CRÍTICO: Verifique suas chaves GEMINI_KEY e TELEGRAM_TOKEN no arquivo .env!")
@@ -39,9 +45,13 @@ except Exception as e:
     print(f"❌ Erro na configuração do Gemini: {e}")
     exit()
 
-# Importante: desativar concorrência para evitar reordenação de mensagens/estados
-bot = telebot.TeleBot(TELEGRAM_TOKEN, num_threads=1)
+# TeleBot
+threaded_flag = False if RUN_MODE == "webhook" else True
+bot = telebot.TeleBot(TELEGRAM_TOKEN, num_threads=1, threaded=threaded_flag)
 print("✅ Bot do Telegram iniciado com sucesso!")
+
+# Flask app somente para webhook
+app = Flask(__name__) if RUN_MODE == "webhook" else None
 
 # --- INICIALIZAÇÃO DO RAG ---
 rag_chain = None
@@ -118,9 +128,43 @@ def carregar_preferencias(chat_id):
         return dict(resultado)
     return {}
 
+# ======= WEBHOOK =======
+def registrar_webhook():
+    if RUN_MODE != "webhook":
+        return
+    if not WEBHOOK_URL:
+        print("WEBHOOK_URL não definido; pulando setWebhook.")
+        return
+    url_final = WEBHOOK_URL.rstrip("/") + f"/{TELEGRAM_TOKEN}"
+    try:
+        resp = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
+            params={"url": url_final},
+            timeout=20,
+        )
+        print("setWebhook:", resp.status_code, resp.text)
+    except Exception as e:
+        print("Falha ao registrar webhook:", e)
+
+if RUN_MODE == "webhook":
+    @app.route("/webhook/<token>", methods=["POST"])
+    def telegram_webhook(token):
+        if token != TELEGRAM_TOKEN:
+            return "forbidden", 403
+        update = request.get_data().decode("utf-8")
+        try:
+            bot.process_new_updates([telebot.types.Update.de_json(update)])
+        except Exception as e:
+            print("Erro processando update:", e)
+        return "ok", 200
+
+    @app.route("/", methods=["GET"])
+    def health():
+        return "ok", 200
+# ======= FIM WEBHOOK =======
+
 # --- HELPERS ---
 def _extrair_json_seguro(texto):
-    """Remove cercas de código e extrai o primeiro JSON com regex não-gulosa."""
     if not texto:
         return None
     texto_limpo = re.sub(r"^```(?:json)?\s*|\s*```$", "", texto.strip(), flags=re.IGNORECASE | re.MULTILINE)
@@ -133,7 +177,6 @@ def _extrair_json_seguro(texto):
         return None
 
 def extrair_tabela(texto: str) -> str:
-    """Extrai linhas estilo tabela Markdown do texto."""
     linhas_tabela = []
     for linha in texto.split('\n'):
         linha = linha.strip()
@@ -146,7 +189,6 @@ def extrair_tabela(texto: str) -> str:
     return '\n'.join(linhas_tabela)
 
 def formatar_tabela_para_telegram(tabela_markdown: str) -> str:
-    """Gera uma tabela monoespaçada dentro de <pre>...</pre> (HTML), para evitar conflitos com Markdown."""
     if not tabela_markdown:
         return ""
     linhas = [l for l in tabela_markdown.strip().split('\n') if not re.fullmatch(r'[|:\-\s]+', l)]
@@ -174,40 +216,28 @@ def formatar_tabela_para_telegram(tabela_markdown: str) -> str:
         return f"<pre>{tabela_markdown}</pre>"
 
 def _parse_mode_para_resposta(texto: str) -> str:
-    """Usa HTML quando houver <pre> (tabelas), senão Markdown."""
     return 'HTML' if '<pre>' in (texto or '') else 'Markdown'
 
 def _safe_edit_message_text(chat_id: int, message_id: int, text: str, reply_markup=None, parse_mode: str | None=None):
-    """
-    Edita o texto da mensagem ancorada. Se o Telegram responder 'message is not modified',
-    reaplica com um caractere invisível para forçar alteração. Em último caso, envia nova msg.
-    """
     try:
         bot.edit_message_text(text, chat_id, message_id, reply_markup=reply_markup, parse_mode=parse_mode)
         return message_id
     except ApiTelegramException as e:
         msg = str(e)
         if "message is not modified" in msg:
-            # alterna entre dois invisíveis para garantir mudança real
             flip = sessoes.get(chat_id, {}).get('_zws_flip', False)
-            zws = '\u2063' if not flip else '\u2062'  # INVISIBLE SEPARATOR / INVISIBLE TIMES
+            zws = '\u2063' if not flip else '\u2062'
             sessoes.setdefault(chat_id, {})['_zws_flip'] = not flip
             try:
                 bot.edit_message_text(text + zws, chat_id, message_id, reply_markup=reply_markup, parse_mode=parse_mode)
                 return message_id
             except ApiTelegramException:
-                # fallback final: manda uma nova mensagem e usa ela como nova âncora
                 new = bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
                 return new.message_id
         else:
-            # outros erros: propaga
             raise
 
 def _sig_markup(markup: types.InlineKeyboardMarkup | None) -> tuple:
-    """
-    Gera uma assinatura imutável do reply_markup para comparações.
-    Considera textos e callback_data dos botões.
-    """
     if not markup or not getattr(markup, 'keyboard', None):
         return ()
     sig = []
@@ -218,20 +248,35 @@ def _sig_markup(markup: types.InlineKeyboardMarkup | None) -> tuple:
         sig.append(tuple(row_sig))
     return tuple(sig)
 
-TELEGRAM_SAFE_LIMIT = 3900  # margem de segurança < 4096
+TELEGRAM_SAFE_LIMIT = 3900  # margem de segurança
+
+def _smart_split(payload: str, limit: int) -> list[str]:
+    chunks: list[str] = []
+    for block in re.split(r'(\n{2,})', payload):
+        if not block:
+            continue
+        if len(block) <= limit:
+            chunks.append(block)
+            continue
+        acc = ""
+        for line in block.splitlines(keepends=True):
+            if len(acc) + len(line) > limit:
+                if acc:
+                    chunks.append(acc)
+                    acc = ""
+                while len(line) > limit:
+                    chunks.append(line[:limit])
+                    line = line[limit:]
+            acc += line
+        if acc:
+            chunks.append(acc)
+    return chunks
 
 def _split_text_for_telegram(text: str, limit: int = TELEGRAM_SAFE_LIMIT, is_html: bool = False) -> list[str]:
-    """
-    Divide um texto longo em pedaços <= limit, tentando não quebrar no meio de blocos <pre>...</pre>
-    e preferindo quebras em linhas/parágrafos.
-    """
     if not text:
         return [""]
-
     parts: list[str] = []
-
     if is_html:
-        # Se HTML, separamos blocos <pre>...</pre> do restante para não corromper tags.
         tokens = []
         idx = 0
         for m in re.finditer(r'(?is)<pre>.*?<\/pre>', text):
@@ -244,12 +289,10 @@ def _split_text_for_telegram(text: str, limit: int = TELEGRAM_SAFE_LIMIT, is_htm
 
         for kind, payload in tokens:
             if kind == "pre":
-                # bloco <pre> vai sozinho; se maior que o limite, fazemos split bruto por linhas
                 if len(payload) <= limit:
                     parts.append(payload)
                 else:
-                    # divide conteúdo do pre mantendo tags de abertura/fecho
-                    inner = payload[5:-6]  # remove <pre> e </pre>
+                    inner = payload[5:-6]
                     lines = inner.splitlines(keepends=True)
                     buff = ""
                     for ln in lines:
@@ -260,47 +303,12 @@ def _split_text_for_telegram(text: str, limit: int = TELEGRAM_SAFE_LIMIT, is_htm
                     if buff:
                         parts.append(f"<pre>{buff}</pre>")
             else:
-                # texto comum em HTML
-                segments = _smart_split(payload, limit)
-                parts.extend(segments)
+                parts.extend(_smart_split(payload, limit))
     else:
-        # Markdown/plain
         parts = _smart_split(text, limit)
-
     return [p for p in parts if p and p.strip()]
 
-def _smart_split(payload: str, limit: int) -> list[str]:
-    """
-    Divide respeitando quebras por parágrafos/linhas, com fallback em regiões menores.
-    """
-    chunks: list[str] = []
-    for block in re.split(r'(\n{2,})', payload):  # mantém separadores de parágrafo
-        if not block:
-            continue
-        if len(block) <= limit:
-            chunks.append(block)
-            continue
-        # Quebra por linhas
-        acc = ""
-        for line in block.splitlines(keepends=True):
-            if len(acc) + len(line) > limit:
-                if acc:
-                    chunks.append(acc)
-                    acc = ""
-                # Linha sozinha maior que limite -> hard split
-                while len(line) > limit:
-                    chunks.append(line[:limit])
-                    line = line[limit:]
-            acc += line
-        if acc:
-            chunks.append(acc)
-    return chunks
-
 def send_long_message(chat_id: int, text: str, parse_mode: str | None = None, reply_to_message_id: int | None = None):
-    """
-    Envia 'text' dividido em partes que cabem no Telegram. A primeira pode ser reply,
-    as demais seguem como mensagens normais.
-    """
     is_html = (parse_mode or "").upper() == "HTML"
     pieces = _split_text_for_telegram(text, TELEGRAM_SAFE_LIMIT, is_html=is_html)
     sent = None
@@ -310,7 +318,6 @@ def send_long_message(chat_id: int, text: str, parse_mode: str | None = None, re
         else:
             sent = bot.send_message(chat_id, piece, parse_mode=parse_mode)
     return sent
-
 
 # === Formato de datas esperado ===
 DATE_FORMAT_HELP = "Por favor, informe as datas no formato: *DD/MM a DD/MM* (ex.: *10/07 a 18/07*)."
@@ -322,15 +329,7 @@ def _zero2(n: str) -> str:
         return n
 
 def parse_intervalo_datas(texto: str) -> dict | None:
-    """
-    Extrai intervalo nos formatos:
-      - DD/MM a DD/MM
-      - DD a DD/MM  (assume mesmo mês do segundo)
-    Retorna {'inicio':'DD/MM','fim':'DD/MM','texto_norm':'DD/MM a DD/MM'} ou None.
-    """
     t = (texto or "").strip()
-
-    # DD/MM a DD/MM
     m1 = re.search(r'(?i)\b(\d{1,2})[\/\-.](\d{1,2})\s*(?:a|até|ate|–|-|—)\s*(\d{1,2})[\/\-.](\d{1,2})\b', t)
     if m1:
         d1, m_1, d2, m_2 = _zero2(m1.group(1)), _zero2(m1.group(2)), _zero2(m1.group(3)), _zero2(m1.group(4))
@@ -338,8 +337,6 @@ def parse_intervalo_datas(texto: str) -> dict | None:
             inicio = f"{d1}/{m_1}"
             fim    = f"{d2}/{m_2}"
             return {"inicio": inicio, "fim": fim, "texto_norm": f"{inicio} a {fim}"}
-
-    # DD a DD/MM
     m2 = re.search(r'(?i)\b(\d{1,2})\s*(?:a|até|ate|–|-|—)\s*(\d{1,2})[\/\-.](\d{1,2})\b', t)
     if m2:
         d1, d2, m_ = _zero2(m2.group(1)), _zero2(m2.group(2)), _zero2(m2.group(3))
@@ -347,7 +344,6 @@ def parse_intervalo_datas(texto: str) -> dict | None:
             inicio = f"{d1}/{m_}"
             fim    = f"{d2}/{m_}"
             return {"inicio": inicio, "fim": fim, "texto_norm": f"{inicio} a {fim}"}
-
     return None
 
 # --- IA ---
@@ -368,13 +364,11 @@ def analisar_resposta_data(texto_usuario: str, destino: str) -> dict:
         return {"classificacao": "indefinido"}
 
 def analisar_mensagem_geral(texto_usuario: str) -> str:
-    """Usa a IA para entender a intenção de uma mensagem fora de um fluxo."""
     prompt = f"""
     Analise a mensagem do usuário e classifique a intenção em uma das seguintes categorias:
     - 'saudacao': Se for um cumprimento como 'oi', 'olá', 'bom dia', 'eai', 'tudo bem'.
     - 'pedido_de_ajuda': Se o usuário pedir o menu, ajuda ou opções.
     - 'desconhecido': Para qualquer outra coisa.
-
     Mensagem: "{texto_usuario}"
     Responda APENAS com um JSON contendo a chave "intencao". Ex: {{"intencao": "saudacao"}}
     """
@@ -397,7 +391,7 @@ def processar_mensagem(session_id: int, texto: str, nome_usuario: str) -> str | 
     if estado == "AGUARDANDO_CONFIRMACAO_FINAL":
         texto_normalizado = texto.strip().lower()
         if 'nao' in texto_normalizado or 'não' in texto_normalizado:
-            sessoes.pop(session_id, None)  # Limpa o estado
+            sessoes.pop(session_id, None)
             handle_start(None, chat_id=session_id, nome_usuario=nome_usuario, is_returning=True)
             return None
         else:
@@ -420,14 +414,12 @@ def processar_mensagem(session_id: int, texto: str, nome_usuario: str) -> str | 
                 f"Agora me conta: *quando* você vai viajar?\n\n{DATE_FORMAT_HELP}")
 
     elif estado == "AGUARDANDO_DATAS":
-        # 1) parsing local no formato fixo
         pars = parse_intervalo_datas(texto)
         if pars:
-            dados_usuario["datas"] = pars["texto_norm"]  # normalizado: "DD/MM a DD/MM"
+            dados_usuario["datas"] = pars["texto_norm"]
             sessoes[session_id]['estado'] = "AGUARDANDO_ORCAMENTO"
             return "Anotado! Agora, qual o seu orçamento total?"
 
-        # 2) fallback: usuário perguntou sobre época
         analise = analisar_resposta_data(texto, dados_usuario.get('destino', 'esse destino'))
         classificacao = analise.get('classificacao')
 
@@ -438,7 +430,6 @@ def processar_mensagem(session_id: int, texto: str, nome_usuario: str) -> str | 
             response = model.generate_content(prompt_resposta)
             return f"{response.text}\n\n{DATE_FORMAT_HELP}"
 
-        # 3) não entendi: reforçar formato exigido
         return f"Desculpe, não entendi as datas.\n{DATE_FORMAT_HELP}"
 
     elif estado == "AGUARDANDO_ORCAMENTO":
@@ -504,24 +495,17 @@ def enviar_menu_principal(chat_id: int, nome_usuario: str, texto_saudacao: str, 
     else:
         bot.send_message(chat_id, texto_final, reply_markup=markup, parse_mode="Markdown")
 
-# ====== NOVO: Painel RAG ======
 def enviar_rag_prompt(chat_id: int, anchor_message_id: int | None = None):
-    """Mostra o 'painel RAG' pedindo a pergunta, com botão para voltar ao menu."""
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(types.InlineKeyboardButton("⬅️ Voltar ao Menu", callback_data="voltar_menu"))
 
     base_texto = "🔎 *Pergunta Rápida ativa*\n\nDigite sua pergunta que vou consultar meu guia de viagens."
     parse_mode = "Markdown"
-
-    # Assinatura alvo (texto sem zws + markup)
     alvo_sig = (base_texto, _sig_markup(markup))
-
-    # Estado salvo da âncora anterior
     sess = sessoes.setdefault(chat_id, {})
     last_sig = sess.get('rag_anchor_sig')
 
     if anchor_message_id:
-        # Se assinatura é igual, já enviamos com um ZWS para forçar alteração
         if last_sig == alvo_sig:
             flip = sess.get('_zws_flip', False)
             zws = '\u2063' if not flip else '\u2062'
@@ -535,7 +519,6 @@ def enviar_rag_prompt(chat_id: int, anchor_message_id: int | None = None):
                                   reply_markup=markup, parse_mode=parse_mode)
             new_id = anchor_message_id
         except ApiTelegramException as e:
-            # Se mesmo assim o Telegram disser que "não modificou", cria nova mensagem
             if "message is not modified" in str(e):
                 msg = bot.send_message(chat_id, base_texto, reply_markup=markup, parse_mode=parse_mode)
                 new_id = msg.message_id
@@ -545,14 +528,12 @@ def enviar_rag_prompt(chat_id: int, anchor_message_id: int | None = None):
         msg = bot.send_message(chat_id, base_texto, reply_markup=markup, parse_mode=parse_mode)
         new_id = msg.message_id
 
-    # Atualiza âncora e assinatura para próximas edições
     sess.update({
         "rag_anchor_id": new_id,
-        "rag_anchor_sig": alvo_sig,  # guardamos a assinatura-alvo (sem zws)
+        "rag_anchor_sig": alvo_sig,
     })
 
 def enviar_rag_pos_resposta(chat_id: int):
-    """Depois de responder, mostra ação de continuar no RAG ou voltar ao menu."""
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("➕ Fazer outra pergunta", callback_data="rag_nova_pergunta"),
@@ -566,11 +547,8 @@ def enviar_menu_pos_roteiro(chat_id: int, message_to_edit=None):
     b2 = types.InlineKeyboardButton("📊 Gerar CSV", callback_data="gerar_csv")
     b3 = types.InlineKeyboardButton("✈️ Voltar ao Menu", callback_data="voltar_menu")
     markup.add(b1, b2, b3)
-
     texto = "O que mais você gostaria de fazer?"
-
     if message_to_edit:
-        # Usa o helper que evita "message is not modified" e faz fallback se necessário
         _safe_edit_message_text(chat_id, message_to_edit.message_id, texto, reply_markup=markup)
     else:
         bot.send_message(chat_id, texto, reply_markup=markup)
@@ -599,7 +577,7 @@ Escolha esta opção no menu para começar. Eu te guiarei pelo processo, e você
 
 Para recomeçar a qualquer momento, use /start.
 """
-    bot.reply_to(message, texto_ajuda, parse_mode='Markdown')
+    send_long_message(message.chat.id, texto_ajuda, parse_mode='Markdown', reply_to_message_id=message.message_id)
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback_query(call: types.CallbackQuery):
@@ -610,7 +588,6 @@ def handle_callback_query(call: types.CallbackQuery):
     bot.answer_callback_query(call.id)
 
     if call.data == "menu_pergunta":
-        # Entra no modo RAG
         sessoes[session_id] = {'estado': 'AGUARDANDO_PERGUNTA_RAG', 'dados': {}, 'modo': 'RAG', 'rag_anchor_id': None, 'rag_anchor_sig': None}
         enviar_rag_prompt(session_id, anchor_message_id=call.message.message_id)
 
@@ -624,7 +601,6 @@ def handle_callback_query(call: types.CallbackQuery):
         bot.send_message(session_id, "Claro! Pode perguntar — estou aqui para tirar suas dúvidas. 🙂")
 
     elif call.data == "voltar_menu":
-        # Sai do modo RAG explicitamente
         sessoes[session_id].update({'estado': None, 'modo': None, 'rag_anchor_id': None, 'rag_anchor_sig': None})
         texto_saudacao = f"Ok, {nome_usuario}!"
         enviar_menu_principal(session_id, nome_usuario, texto_saudacao, message_to_edit=call.message)
@@ -706,36 +682,26 @@ Para voltar a este menu, basta usar o comando /start."""
         bot.edit_message_reply_markup(chat_id=session_id, message_id=call.message.message_id, reply_markup=markup)
 
     elif call.data in ["gerar_pdf", "gerar_csv"]:
+        import os as _os  # para remover arquivo depois
         bot.send_chat_action(session_id, 'upload_document')
         tipo_arquivo = call.data.split('_')[1]
         dados = sessoes.get(session_id, {}).get('dados', {})
-
-        # garantir tipos e defaults seguros
         destino_safe = (dados.get('destino') or 'roteiro')
         datas_safe   = (dados.get('datas') or '')
         tabela_safe  = (dados.get('tabela_itinerario') or '')
         desc_safe    = (dados.get('descricao_detalhada') or '')
-
-        # utils usam slicing em session_id, assegurar string
         session_id_str = str(session_id)
 
         if tipo_arquivo == 'pdf':
             caminho_arquivo = gerar_pdf(
-                destino=destino_safe,
-                datas=datas_safe,
-                tabela=tabela_safe,
-                descricao=desc_safe,
-                session_id=session_id_str,
+                destino=destino_safe, datas=datas_safe, tabela=tabela_safe, descricao=desc_safe, session_id=session_id_str
             )
         else:
-            caminho_arquivo = csv_generator(
-                tabela=tabela_safe,
-                session_id=session_id_str,
-            )
+            caminho_arquivo = csv_generator(tabela=tabela_safe, session_id=session_id_str)
 
         with open(caminho_arquivo, 'rb') as arquivo:
             bot.send_document(session_id, arquivo)
-        os.remove(caminho_arquivo)
+        _os.remove(caminho_arquivo)
         enviar_menu_pos_roteiro(session_id, message_to_edit=call.message)
 
 @bot.message_handler(func=lambda message: True)
@@ -746,7 +712,6 @@ def handle_messages(message: telebot.types.Message):
     texto_normalizado = message.text.strip().lower()
 
     try:
-        # 1) Guardas de obrigado
         palavras_agradecimento = ["obrigado", "obrigada", "valeu", "grato", "agradeço", "thanks", "obg"]
         if any(palavra in texto_normalizado for palavra in palavras_agradecimento):
             sessoes[session_id] = {
@@ -759,34 +724,29 @@ def handle_messages(message: telebot.types.Message):
             bot.reply_to(message, f"De nada, {nome_usuario}! 😊 Fico feliz em ajudar. Posso te ajudar com mais alguma coisa?")
             return
 
-        # 2) Estado/mode atuais
         estado_atual = sessoes.get(session_id, {}).get('estado')
         modo_atual = sessoes.get(session_id, {}).get('modo')
 
-        # 3) Se estamos em modo RAG, garantimos o fluxo (mesmo que o estado tenha sido perdido)
         if modo_atual == 'RAG':
             if not estado_atual:
                 sessoes.setdefault(session_id, {}).update({'estado': 'AGUARDANDO_PERGUNTA_RAG'})
             resposta = processar_mensagem(session_id, message.text, nome_usuario)
             if resposta:
-                bot.reply_to(message, resposta, parse_mode=_parse_mode_para_resposta(resposta))
-            # pós-resposta do RAG
+                send_long_message(session_id, resposta, parse_mode=_parse_mode_para_resposta(resposta), reply_to_message_id=message.message_id)
             if sessoes.get(session_id, {}).get('estado') == 'PERGUNTA_RESPONDIDA':
                 enviar_rag_pos_resposta(session_id)
             return
 
-        # 4) Demais fluxos
         if estado_atual:
             resposta = processar_mensagem(session_id, message.text, nome_usuario)
             if resposta:
-                bot.reply_to(message, resposta, parse_mode=_parse_mode_para_resposta(resposta))
+                send_long_message(session_id, resposta, parse_mode=_parse_mode_para_resposta(resposta), reply_to_message_id=message.message_id)
             if sessoes.get(session_id, {}).get('estado') == 'ROTEIRO_GERADO':
                 enviar_menu_pos_roteiro(session_id)
             elif sessoes.get(session_id, {}).get('estado') == 'PERGUNTA_RESPONDIDA':
                 enviar_rag_pos_resposta(session_id)
             return
 
-        # 5) Fora de fluxo e fora do modo RAG: decide entre saudação/menu
         intencao = analisar_mensagem_geral(message.text)
         if intencao == 'saudacao':
             texto_apresentacao = f"""
@@ -798,9 +758,8 @@ Posso *criar roteiros completos*, te dar *sugestões de destinos* ou até mesmo 
 
 Para ver todas as opções, é só me pedir o menu ou usar o comando /start.
 """
-            bot.reply_to(message, texto_apresentacao, parse_mode='Markdown')
+            send_long_message(session_id, texto_apresentacao, parse_mode='Markdown', reply_to_message_id=message.message_id)
         else:
-            # Mostra o menu principal só quando não estamos em modo RAG
             handle_start(message)
         return
 
@@ -811,9 +770,14 @@ Para ver todas as opções, é só me pedir o menu ou usar o comando /start.
 
 # --- INICIA O BOT ---
 print("VexusBot (Versão Avançada) em execução...")
-while True:
-    try:
-        bot.infinity_polling(timeout=10, long_polling_timeout=5, skip_pending=True)
-    except Exception as e:
-        print(f"Erro de conexão/polling: {e}. Reiniciando em 15 segundos...")
-        time.sleep(15)
+
+if RUN_MODE == "webhook":
+    registrar_webhook()
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
+else:
+    while True:
+        try:
+            bot.infinity_polling(timeout=10, long_polling_timeout=5, skip_pending=True)
+        except Exception as e:
+            print(f"Erro de conexão/polling: {e}. Reiniciando em 15 segundos...")
+            time.sleep(15)
