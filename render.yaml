@@ -2,7 +2,7 @@ services:
   - type: worker
     name: vexusbot-worker
     env: python
-    plan: starter   # pode usar free, mas starter é mais estável
+    plan: starter            # pode usar free, mas disco precisa de starter+
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
@@ -12,11 +12,14 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
-      # Opcional: se decidir usar webhook um dia:
+      # Para o código salvar DB e arquivos no disco persistente
+      - key: DATA_DIR
+        value: /data
+      # (Opcional) se um dia usar webhook:
       - key: WEBHOOK_URL
         sync: false
-    # (Opcional) Disco persistente para DB/arquivos
-    disks:
-      - name: data
-        mountPath: /data
-        sizeGB: 1
+    # Disco persistente (SINGULAR: disk)
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
