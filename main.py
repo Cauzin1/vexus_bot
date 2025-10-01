@@ -109,10 +109,16 @@ except Exception as e:
 # --- BANCO DE DADOS E MEMÓRIA ---
 sessoes = {}
 
+def get_conn():
+    """Cria conexão SQLite com configurações para reduzir locks."""
+    conn = sqlite3.connect('usuarios.db', check_same_thread=False, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=8000;")
+    return conn
 
 def inicializar_banco():
-    conexao = sqlite3.connect('usuarios.db', check_same_thread=False, timeout=20)
-    cursor = conexao.cursor()
+    conn = get_conn()
+    cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY,
@@ -125,41 +131,51 @@ def inicializar_banco():
             interesses TEXT
         )
     ''')
-    #cursor.execute('''
-   # CREATE TABLE IF NOT EXISTS roteiros (
-    #    id INTEGER PRIMARY KEY AUTOINCREMENT,
-   #     chat_id TEXT NOT NULL,
-    #    nome TEXT NOT NULL,
-    #    roteiro_texto TEXT,
-    #    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-   # )
-#''')
-
-    conexao.commit()
-    conexao.close()
+    conn.commit()
+    conn.close()
     print("🗄️ Banco de dados inicializado com sucesso!")
 
+def ensure_user_columns():
+    """Adiciona colunas ausentes na tabela de usuários sem quebrar o banco existente."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cols = {row[1] for row in cur.execute("PRAGMA table_info(usuarios)").fetchall()}
+    wanted = {
+        "nome": "TEXT",
+        "idade": "INTEGER",
+        "acompanhantes": "TEXT",
+        "estilo_viagem": "TEXT",
+        "tipo_comida": "TEXT",
+        "interesses": "TEXT",
+    }
+    for col, ddl in wanted.items():
+        if col not in cols:
+            cur.execute(f"ALTER TABLE usuarios ADD COLUMN {col} {ddl}")
+    conn.commit()
+    conn.close()
+
 inicializar_banco()
+ensure_user_columns()
 
 _COLS_OK = {"nome", "idade", "acompanhantes", "estilo_viagem", "tipo_comida", "interesses"}
 
 def salvar_preferencia(chat_id, coluna, valor):
     if coluna not in _COLS_OK:
         raise ValueError("Coluna inválida para salvar preferências.")
-    conexao = sqlite3.connect('usuarios.db', check_same_thread=False)
-    cursor = conexao.cursor()
+    conn = get_conn()
+    cursor = conn.cursor()
     cursor.execute("INSERT OR IGNORE INTO usuarios (chat_id) VALUES (?)", (str(chat_id),))
     cursor.execute(f"UPDATE usuarios SET {coluna} = ? WHERE chat_id = ?", (valor, str(chat_id)))
-    conexao.commit()
-    conexao.close()
+    conn.commit()
+    conn.close()
 
 def carregar_preferencias(chat_id):
-    conexao = sqlite3.connect('usuarios.db', check_same_thread=False)
-    conexao.row_factory = sqlite3.Row
-    cursor = conexao.cursor()
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
     cursor.execute("SELECT * FROM usuarios WHERE chat_id = ?", (str(chat_id),))
     resultado = cursor.fetchone()
-    conexao.close()
+    conn.close()
     if resultado:
         return dict(resultado)
     return {}
@@ -690,15 +706,27 @@ Para voltar a este menu, basta usar o comando /start."""
         bot.edit_message_text("Claro! Me diga o que você procura em uma viagem (ex: 'praia e sol').", session_id, call.message.message_id)
 
     elif call.data == "menu_perfil":
-        interesses_salvos = carregar_preferencias(session_id).get('interesses', '')
+        prefs = carregar_preferencias(session_id)
+        interesses_salvos = (prefs.get('interesses') or '')
         selecoes_atuais = [i.strip() for i in interesses_salvos.split(',') if i.strip()]
-        sessoes[session_id] = {'estado': 'BRIEFING_INTERESSES', 'selecoes_interesses': selecoes_atuais, 'dados': {}, 'modo': None, 'rag_anchor_id': None, 'rag_anchor_sig': None}
+        sessoes[session_id] = {
+            'estado': 'BRIEFING_INTERESSES',
+            'selecoes_interesses': selecoes_atuais,
+            'dados': {},
+            'modo': None,
+            'rag_anchor_id': None,
+            'rag_anchor_sig': None
+        }
         markup = types.InlineKeyboardMarkup(row_width=2)
         opcoes = ["Museus", "Natureza", "Vida Noturna", "Gastronomia"]
-        botoes = [types.InlineKeyboardButton(f"✅ {opt}" if opt in selecoes_atuais else opt, callback_data=f"briefing_selecionar_{opt}") for opt in opcoes]
+        botoes = [types.InlineKeyboardButton(f"✅ {opt}" if opt in selecoes_atuais else opt,
+                  callback_data=f"briefing_selecionar_{opt}") for opt in opcoes]
         markup.add(*botoes)
         markup.add(types.InlineKeyboardButton("➡️ Concluir", callback_data="briefing_selecionar_concluir"))
-        bot.edit_message_text("Vamos criar/atualizar seu perfil. Selecione seus interesses e clique em 'Concluir'.", session_id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text(
+            "Vamos criar/atualizar seu perfil. Selecione seus interesses e clique em 'Concluir'.",
+            session_id, call.message.message_id, reply_markup=markup
+        )
 
     elif call.data.startswith("briefing_selecionar_"):
         valor = call.data.split('_', 2)[2]
