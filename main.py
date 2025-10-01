@@ -111,7 +111,7 @@ sessoes = {}
 
 
 def inicializar_banco():
-    conexao = sqlite3.connect('usuarios.db', check_same_thread=False)
+    conexao = sqlite3.connect('usuarios.db', check_same_thread=False, timeout=20)
     cursor = conexao.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
