@@ -14,3 +14,4 @@ weasyprint>=62.0
 pillow
 tinycss2
 cssselect2
+Flask-Cors

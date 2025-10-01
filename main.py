@@ -17,6 +17,7 @@ from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
 from telebot.apihelper import ApiTelegramException
+import google.generativeai as genai
 
 # --- WEBHOOK ---
 import requests
@@ -38,10 +39,33 @@ if not GEMINI_KEY or not TELEGRAM_TOKEN:
     print("ERRO CRÍTICO: Verifique suas chaves GEMINI_KEY e TELEGRAM_TOKEN no arquivo .env!")
     exit()
 
+# --- Configuração Gemini com fallback ---
+genai.configure(api_key=GEMINI_KEY)
+
+def escolher_modelo():
+    disponiveis = [m.name for m in genai.list_models()]
+
+    # Preferência: 2.5 flash → 2.5 pro → flash-latest → pro-latest
+    for candidato in [
+        "models/gemini-2.5-flash",
+        "models/gemini-2.5-pro",
+        "models/gemini-flash-latest",
+        "models/gemini-pro-latest"
+    ]:
+        if candidato in disponiveis:
+            return candidato.replace("models/", "")
+
+    # fallback adicional (se nada bater)
+    for candidato in disponiveis:
+        if "gemini" in candidato and ("flash" in candidato or "pro" in candidato):
+            return candidato.replace("models/", "")
+
+    raise RuntimeError(f"Nenhum modelo Gemini compatível disponível. Modelos encontrados: {disponiveis}")
+
 try:
-    genai.configure(api_key=GEMINI_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    print("✅ Gemini configurado com sucesso!")
+    GEMINI_MODEL = escolher_modelo()
+    model = genai.GenerativeModel(GEMINI_MODEL)
+    print(f"✅ Gemini configurado com sucesso! Usando modelo: {GEMINI_MODEL}")
 except Exception as e:
     print(f"❌ Erro na configuração do Gemini: {e}")
     exit()
@@ -57,7 +81,7 @@ app = Flask(__name__) if RUN_MODE == "webhook" else None
 # --- INICIALIZAÇÃO DO RAG ---
 rag_chain = None
 try:
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.7, google_api_key=GEMINI_KEY)
+    llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0.7, google_api_key=GEMINI_KEY)
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GEMINI_KEY)
     vector_store = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
     retriever = vector_store.as_retriever(search_kwargs={"k": 3})
@@ -85,6 +109,7 @@ except Exception as e:
 # --- BANCO DE DADOS E MEMÓRIA ---
 sessoes = {}
 
+
 def inicializar_banco():
     conexao = sqlite3.connect('usuarios.db', check_same_thread=False)
     cursor = conexao.cursor()
@@ -100,6 +125,16 @@ def inicializar_banco():
             interesses TEXT
         )
     ''')
+    #cursor.execute('''
+   # CREATE TABLE IF NOT EXISTS roteiros (
+    #    id INTEGER PRIMARY KEY AUTOINCREMENT,
+   #     chat_id TEXT NOT NULL,
+    #    nome TEXT NOT NULL,
+    #    roteiro_texto TEXT,
+    #    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+   # )
+#''')
+
     conexao.commit()
     conexao.close()
     print("🗄️ Banco de dados inicializado com sucesso!")
@@ -491,7 +526,8 @@ def enviar_menu_principal(chat_id: int, nome_usuario: str, texto_saudacao: str, 
     b3 = types.InlineKeyboardButton("✍️ Criar/Atualizar Perfil", callback_data="menu_perfil")
     b4 = types.InlineKeyboardButton("🧑🏻‍💻 Pergunta Rápida", callback_data="menu_pergunta")
     b5 = types.InlineKeyboardButton("❓ Como Funciona?", callback_data="menu_ajuda")
-    markup.add(b1, b2, b3, b4, b5)
+    b6 = types.InlineKeyboardButton("🔗 Links Úteis", callback_data="menu_links")  
+    markup.add(b1, b2, b3, b4, b5, b6)
 
     texto_final = f"{texto_saudacao}\n\nComo posso te ajudar?"
     if message_to_edit:
@@ -588,6 +624,7 @@ def handle_callback_query(call: types.CallbackQuery):
     global sessoes
     session_id = call.message.chat.id
     nome_usuario = call.from_user.first_name
+    
 
     bot.answer_callback_query(call.id)
 
@@ -708,6 +745,22 @@ Para voltar a este menu, basta usar o comando /start."""
         _os.remove(caminho_arquivo)
         enviar_menu_pos_roteiro(session_id, message_to_edit=call.message)
 
+    elif call.data == "menu_links":
+        texto_links = """🌐 *Links Úteis e Afiliados*
+
+        Aqui estão alguns recursos que podem te interessar:
+
+        - 🏨 [Booking.com](https://www.booking.com/index.en-us.html?aid=336558)
+        - ✈️ [Passagens Aéreas](https://www.skyscanner.com.br/?irclickid=_exemplo_afiliado)
+        - 🚗 [Aluguel de Carros](https://www.rentcars.com/pt-br/?requestorid=68)
+        - 🛡️ [Seguro Viagem](https://www.seguroviagem.srv.br/?ag=ViajandoBem)
+
+        Sempre use esses links para apoiar nosso projeto! ❤️
+        """
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("⬅️ Voltar ao Menu", callback_data="voltar_menu"))
+        bot.edit_message_text(texto_links, session_id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    
 @bot.message_handler(func=lambda message: True)
 def handle_messages(message: telebot.types.Message):
     global sessoes

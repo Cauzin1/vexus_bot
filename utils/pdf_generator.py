@@ -140,11 +140,7 @@ def _html_table_from_rows(rows: list[list[str]]) -> str:
 def gerar_pdf(destino: str, datas: str, tabela: str, descricao: str, session_id: str) -> str:
     """
     Gera um PDF organizado com título, período, descrição e uma tabela (Markdown ou CSV/TSV) formatada.
-    - destino: texto do destino
-    - datas: intervalo (ex.: "10/07 a 18/07")
-    - tabela: string em Markdown de tabela OU CSV/TSV
-    - descricao: markdown/plano (será convertido para HTML básico)
-    - session_id: string (usada para nomear arquivo)
+    Inclui também links de afiliados.
     """
     destino_safe = destino or "Roteiro"
     destino_slug = _slugify(destino_safe)
@@ -157,6 +153,18 @@ def gerar_pdf(destino: str, datas: str, tabela: str, descricao: str, session_id:
     # Descrição: remover * e ** e converter quebras de linha
     descricao_html = htmlmod.escape((descricao or "").replace("**", "").replace("*", ""))
     descricao_html = descricao_html.replace("\n", "<br>")
+
+    # Links de afiliados 👉 personalize aqui
+    links_afiliados = [
+        ("Booking.com", "https://www.booking.com/seu-link-afiliado"),
+        ("Passagens Aéreas", "https://www.kayak.com/seu-link-afiliado"),
+        ("Aluguel de Carros", "https://www.rentalcars.com/seu-link-afiliado"),
+        ("Seguro Viagem", "https://www.seguroviagem.com.br/seu-link-afiliado"),
+    ]
+    links_html = "".join(
+        f"<li><a href='{htmlmod.escape(url)}' target='_blank'>{htmlmod.escape(titulo)}</a></li>"
+        for titulo, url in links_afiliados
+    )
 
     # HTML completo
     html_content = f"""
@@ -189,6 +197,8 @@ def gerar_pdf(destino: str, datas: str, tabela: str, descricao: str, session_id:
             .itinerario-table tbody tr:nth-child(even) {{ background: #f9fbff; }}
             .itinerario-table tbody tr:nth-child(odd)  {{ background: #ffffff; }}
             .footer {{ margin-top: 28px; text-align: center; font-size: 0.8em; color: #777; }}
+            ul.links-afiliados {{ margin-top: 12px; }}
+            ul.links-afiliados li {{ margin: 4px 0; }}
         </style>
     </head>
     <body>
@@ -204,6 +214,11 @@ def gerar_pdf(destino: str, datas: str, tabela: str, descricao: str, session_id:
         <h2 class="section-title">Detalhes e Dicas</h2>
         <div>{descricao_html}</div>
 
+        <h2 class="section-title">🌐 Links Úteis e Afiliados</h2>
+        <ul class="links-afiliados">
+            {links_html}
+        </ul>
+
         <div class="footer"><p>Gerado por vIAjante</p></div>
     </body>
     </html>
@@ -214,4 +229,3 @@ def gerar_pdf(destino: str, datas: str, tabela: str, descricao: str, session_id:
     caminho = os.path.join('arquivos', nome_arquivo)
     HTML(string=html_content).write_pdf(caminho)
     return caminho
-
