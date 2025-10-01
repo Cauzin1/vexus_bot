@@ -11,8 +11,14 @@ cursor.execute("DROP TABLE IF EXISTS roteiros")
 # Cria tabela de usuários
 cursor.execute('''
 CREATE TABLE usuarios (
-    chat_id TEXT PRIMARY KEY,
-    nome TEXT NOT NULL
+    id INTEGER PRIMARY KEY,
+    chat_id TEXT UNIQUE NOT NULL,
+    nome TEXT,
+    idade INTEGER,
+    acompanhantes TEXT,
+    estilo_viagem TEXT,
+    tipo_comida TEXT,
+    interesses TEXT
 )
 ''')
 
