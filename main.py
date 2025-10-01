@@ -47,8 +47,8 @@ def escolher_modelo():
 
     # Preferência: 2.5 flash → 2.5 pro → flash-latest → pro-latest
     for candidato in [
-        "models/gemini-2.5-flash",
-        "models/gemini-2.5-pro",
+        "models/gemini-1.5-flash",
+        "models/gemini-1.5-pro",
         "models/gemini-flash-latest",
         "models/gemini-pro-latest"
     ]:
