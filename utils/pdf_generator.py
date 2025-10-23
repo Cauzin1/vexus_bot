@@ -156,10 +156,10 @@ def gerar_pdf(destino: str, datas: str, tabela: str, descricao: str, session_id:
 
     # Links de afiliados 👉 personalize aqui
     links_afiliados = [
-        ("Booking.com", "https://www.booking.com/seu-link-afiliado"),
-        ("Passagens Aéreas", "https://www.kayak.com/seu-link-afiliado"),
-        ("Aluguel de Carros", "https://www.rentalcars.com/seu-link-afiliado"),
-        ("Seguro Viagem", "https://www.seguroviagem.com.br/seu-link-afiliado"),
+        ("Booking.com", "https://www.booking.com/index.en-us.html?aid=336558"),
+        ("Passagens Aéreas", "https://www.skyscanner.com.br/?previousCultureSource=GEO_LOCATION&redirectedFrom=www.skyscanner.net&associateid=AFF_TRA_19354_00001&irclickid=_ezg3amolgkkfbhjjhy3kl2pmbm2xcigkumasilhl00&irgwc=1&utm_campaign=&utm_medium=affiliate&utm_source=2916765-Viajando%20Bem "),
+        ("Aluguel de Carros", " https://www.rentcars.com/pt-br/?requestorid=68"),
+        ("Seguro Viagem", "https://www.seguroviagem.srv.br/?ag=ViajandoBem"),
     ]
     links_html = "".join(
         f"<li><a href='{htmlmod.escape(url)}' target='_blank'>{htmlmod.escape(titulo)}</a></li>"
