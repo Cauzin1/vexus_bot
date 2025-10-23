@@ -1,0 +1,23 @@
+;Item;Custo Estimado (€);Notas
+1;Passagens Aéreas (Ida e Volta);800 - 1200;Depende da origem e antecedência da compra.
+2;Hospedagem (8 noites);1200 - 1600;Média de €150-€200 por noite em hotel 3 estrelas ou Airbnb bem localizado (ex: 9º, 10º, 11º ou partes do 15º, 17º).
+3;Alimentação (9 dias);800 - 1000;Inclui cafés da manhã simples, almoços rápidos/brasseries e jantares com alguma variação (média €80-€100/dia).
+4;Transporte Local;50 - 80;Navigo Découverte semanal (se a chegada for antes de quinta-feira) ou carnets de 10 tickets + avulsos.
+5;Atrações/Passeios/Compras;1000 - 1500;Entradas para museus, passeios específicos (ex: Versalhes), souvenirs e um fundo de reserva.
+6;**Total Estimado**;**3850 - 5380**;**Dentro da meta de 5000**
+7;DATA;DIA;LOCAL;ATIVIDADE
+8;10/06;Segunda;1º e 8º Arrondissement;Chegada e Aclimatação: Check-in no hotel. Almoço. Visita à **Place de la Concorde** e caminhada pelos **Champs-Élysées** até o **Arco do Triunfo** (subida ao entardecer). Jantar perto do hotel.
+9;11/06;Terça;7º Arrondissement;Museus e Ícones: **Torre Eiffel** (visita pela manhã/início da tarde). Almoço rápido na região. Tarde: **Musée d'Orsay** (arte impressionista). Jantar em Saint-Germain-des-Prés (margem esquerda).
+10;12/06;Quarta;Île de la Cité e Le Marais;História e Charme: Manhã: **Catedral de Notre Dame** (visita externa e praça). **Sainte-Chapelle** (vitrais). Almoço na Île Saint-Louis. Tarde: Caminhada por **Le Marais** (Place des Vosges, Rue des Rosiers) e visita ao **Centro Pompidou** (arquitetura moderna).
+11;13/06;Quinta;1º Arrondissement;Arte Clássica: Dia dedicado ao **Musée du Louvre**. Foco em alas principais (Mona Lisa, Vênus de Milo, etc.). Almoço dentro ou próximo ao museu. Tarde: Relaxamento nos **Jardins des Tuileries** e **Palais Royal**. Jantar na região da Ópera.
+12;14/06;Sexta;Viagem de um dia;Excursão a Versalhes: Viagem de RER C. Visita ao **Château de Versailles** (Palácio e Galeria dos Espelhos). Tarde: Exploração dos **Jardins de Versalhes** e o Petit Trianon. Retorno a Paris no final da tarde. Jantar leve.
+13;15/06;Sábado;Montmartre e Norte;Vistas e Boemia: Manhã: Subida a **Montmartre**. Visita à **Sacré-Cœur** e à **Place du Tertre** (pintores). Almoço boêmio. Tarde: Visita ao **Musée de l'Orangerie** (Ninfeias de Monet). À noite: Possível show de cabaré (opcional, fora do orçamento base).
+14;16/06;Domingo;5º Arrondissement;Quartier Latin: Manhã: **Jardins de Luxemburgo**. Visita ao **Panthéon**. Almoço em bistrô tradicional no Quartier Latin. Tarde: Exploração das livrarias (Shakespeare and Company) e **Sorbonne**.
+15;17/06;Segunda;Dia Livre/Compras/Alternativo;"Dia Flexível: Sugestões: 1. Compras nas Galerias Lafayette (vista do terraço); 2. Canal Saint-Martin (almoço descontraído); 3. Visita ao **Catacumbas** (se houver interesse em algo diferente, requer reserva). Passeio de barco no Sena no final do dia."
+16;18/06;Terça;Despedida;Últimas Compras e Partida: Café da manhã parisiense. Visita a uma pâtisserie favorita. Transporte para o aeroporto.
+17;Categoria;Nome/Tipo;Localização;Dica Roteiro
+18;**Brasserie Clássica**;Le Relais de l’Entrecôte;Vários locais (ex: 8º Arr.);Serve apenas um prato (steak frites com molho secreto). Ótimo para o jantar do Dia 1 ou Dia 13.
+19;**Bistrô (Orçamento Médio)**;Le Comptoir de la Gastronomie;Le Marais (4º Arr.);Comida francesa tradicional e acessível. Excelente para o almoço do Dia 12.
+20;**Pâtisserie**;Ladurée ou Pierre Hermé;Vários locais;Imperdível para macarons e sobremesas finas. Para uma pausa doce.
+21;**Café Histórico**;Les Deux Magots ou Café de Flore;Saint-Germain-des-Prés (6º Arr.);Ótimos para um café ou almoço leve e observar o movimento. Jantar do Dia 2.
+22;**Cozinha Internacional (Acessível)**;Rue des Rosiers;Le Marais;Famosa pelos falafels (ex: L'As du Fallafel). Almoço rápido no Dia 12.

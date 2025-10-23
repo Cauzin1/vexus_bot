@@ -15,3 +15,5 @@ pillow
 tinycss2
 cssselect2
 Flask-Cors
+pandas>=2.0.0
+openpyxl>=3.1.0
