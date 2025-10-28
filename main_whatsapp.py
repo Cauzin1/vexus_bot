@@ -16,6 +16,7 @@ import traceback
 import threading
 import time
 import sys
+from datetime import datetime
 
 # === CARREGA VARIÁVEIS ===
 load_dotenv()
@@ -1057,15 +1058,15 @@ def gerar_e_enviar_excel(telefone):
             enviar_mensagem(telefone, "❌ Desculpe, não consegui gerar o arquivo.")
 
 def gerar_e_enviar_pdf(telefone):
-    """Gera e envia PDF do roteiro - VERSÃO MELHORADA"""
+    """Gera e envia PDF do roteiro - VERSÃO CORRIGIDA PARA TABELA IGUAL AO EXEMPLO"""
     try:
-        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import inch
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
         from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT
-        
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+
         sessao = carregar_sessao(telefone)
         dados = sessao.get('dados', {})
         
@@ -1076,7 +1077,14 @@ def gerar_e_enviar_pdf(telefone):
         enviar_mensagem(telefone, "📄 Gerando seu PDF... Aguarde...")
         
         caminho_pdf = f"roteiro_{telefone}.pdf"
-        doc = SimpleDocTemplate(caminho_pdf, pagesize=A4)
+        doc = SimpleDocTemplate(
+            caminho_pdf, 
+            pagesize=A4,
+            topMargin=0.5*inch,
+            bottomMargin=0.5*inch,
+            leftMargin=0.5*inch,
+            rightMargin=0.5*inch
+        )
         story = []
         styles = getSampleStyleSheet()
         
@@ -1084,67 +1092,166 @@ def gerar_e_enviar_pdf(telefone):
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Title'],
-            fontSize=24,
+            fontSize=16,
             textColor=colors.HexColor('#2c3e50'),
-            spaceAfter=30,
-            alignment=TA_CENTER
+            spaceAfter=20,
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold'
         )
         
         heading_style = ParagraphStyle(
             'CustomHeading',
             parent=styles['Heading2'],
-            fontSize=14,
+            fontSize=12,
             textColor=colors.HexColor('#34495e'),
             spaceBefore=12,
-            spaceAfter=6
+            spaceAfter=8,
+            fontName='Helvetica-Bold'
         )
         
-        # Título
-        story.append(Paragraph(f"Roteiro de Viagem: {dados.get('destino', 'Destino')}", title_style))
-        story.append(Paragraph(f"Período: {dados.get('datas', 'N/A')}", styles['Normal']))
-        story.append(Paragraph(f"Orçamento: {dados.get('orcamento', 'N/A')}", styles['Normal']))
-        story.append(Spacer(1, 0.3*inch))
+        normal_style = ParagraphStyle(
+            'NormalCustom',
+            parent=styles['Normal'],
+            fontSize=9,
+            leading=11,
+            alignment=TA_JUSTIFY
+        )
         
-        # Tenta adicionar tabela
-        tabela = dados.get('tabela_itinerario', '')
-        if tabela and '|' in tabela:
+        table_header_style = ParagraphStyle(
+            'TableHeader',
+            parent=styles['Normal'],
+            fontSize=9,
+            textColor=colors.white,
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold'
+        )
+        
+        table_cell_style = ParagraphStyle(
+            'TableCell',
+            parent=styles['Normal'],
+            fontSize=8,
+            leading=9,
+            alignment=TA_LEFT
+        )
+
+        # Título principal
+        story.append(Paragraph(f"Roteiro de Viagem: {dados.get('destino', 'Destino')}", title_style))
+        story.append(Paragraph(f"Período: {dados.get('datas', 'N/A')}", normal_style))
+        story.append(Paragraph(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", normal_style))
+        story.append(Spacer(1, 0.2*inch))
+        
+        # Adiciona tabela de itinerário (PRINCIPAL CORREÇÃO)
+        tabela_md = dados.get('tabela_itinerario', '')
+        if tabela_md and '|' in tabela_md:
             try:
-                df = markdown_table_to_dataframe(tabela)
+                # Converte markdown para DataFrame
+                df = markdown_table_to_dataframe(tabela_md)
                 
-                # Converte DataFrame para formato do ReportLab
-                table_data = [df.columns.tolist()] + df.values.tolist()
+                # Prepara dados da tabela
+                table_data = []
                 
-                t = Table(table_data)
-                t.setStyle(TableStyle([
+                # Cabeçalho
+                header_row = []
+                for col in df.columns:
+                    header_row.append(Paragraph(str(col), table_header_style))
+                table_data.append(header_row)
+                
+                # Dados
+                for _, row in df.iterrows():
+                    data_row = []
+                    for cell in row:
+                        # Para células com texto longo, usa Paragraph para quebrar linhas
+                        cell_text = str(cell) if cell else ""
+                        data_row.append(Paragraph(cell_text, table_cell_style))
+                    table_data.append(data_row)
+                
+                # Cria tabela com estilo IDÊNTICO ao exemplo
+                col_widths = [0.6*inch, 1.0*inch, 1.2*inch, 4.0*inch]  # Proporções similares ao exemplo
+                
+                table = Table(table_data, colWidths=col_widths, repeatRows=1)
+                
+                # ESTILO DA TABELA - IDÊNTICO AO EXEMPLO
+                table.setStyle(TableStyle([
+                    # Cabeçalho
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 10),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                    ('FONTSIZE', (0, 0), (-1, 0), 9),
+                    ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    
+                    # Linhas alternadas para melhor legibilidade
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8f9fa')]),
+                    
+                    # Bordas
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#dee2e6')),
+                    ('LINEBELOW', (0, 0), (-1, 0), 1, colors.HexColor('#2c5aa0')),
+                    
+                    # Alinhamento das células
+                    ('ALIGN', (0, 1), (0, -1), 'CENTER'),  # DATA centralizada
+                    ('ALIGN', (1, 1), (1, -1), 'CENTER'),  # DIA centralizada
+                    ('ALIGN', (2, 1), (2, -1), 'LEFT'),    # LOCAL alinhado à esquerda
+                    ('ALIGN', (3, 1), (3, -1), 'LEFT'),    # ATIVIDADE alinhado à esquerda
+                    
+                    # Padding
+                    ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                    ('TOPPADDING', (0, 0), (-1, -1), 3),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
                 ]))
                 
                 story.append(Paragraph("Itinerário", heading_style))
-                story.append(t)
+                story.append(table)
                 story.append(Spacer(1, 0.3*inch))
                 
             except Exception as e_table:
-                print(f"⚠️ Não foi possível adicionar tabela ao PDF: {e_table}", flush=True)
+                print(f"⚠️ Erro ao processar tabela: {e_table}", flush=True)
+                # Fallback: adiciona texto simples
+                story.append(Paragraph("Itinerário", heading_style))
+                story.append(Paragraph(tabela_md.replace('|', ' | '), normal_style))
         
-        # Adiciona texto do roteiro
-        story.append(Paragraph("Detalhes do Roteiro", heading_style))
-        
+        # Adiciona seção de orçamento se disponível
         roteiro_completo = dados.get('roteiro_completo', '')
-        paragrafos = roteiro_completo.split('\n\n')
+        if "ORÇAMENTO" in roteiro_completo or "Custo" in roteiro_completo:
+            story.append(PageBreak())
+            story.append(Paragraph("Orçamento Estimado", heading_style))
+            
+            # Extrai informações de orçamento do texto
+            orcamento_texto = ""
+            linhas = roteiro_completo.split('\n')
+            in_orcamento = False
+            
+            for linha in linhas:
+                if "ORÇAMENTO" in linha or "Custo" in linha:
+                    in_orcamento = True
+                if in_orcamento and linha.strip():
+                    orcamento_texto += linha + "<br/>"
+                elif in_orcamento and not linha.strip():
+                    break
+            
+            story.append(Paragraph(orcamento_texto, normal_style))
         
-        for paragrafo in paragrafos[:20]:  # Limita para não ficar muito grande
-            if paragrafo.strip() and '|' not in paragrafo:  # Ignora linhas de tabela
-                texto_limpo = paragrafo.replace('**', '').replace('*', '')
-                story.append(Paragraph(texto_limpo, styles['Normal']))
-                story.append(Spacer(1, 0.1*inch))
+        # Adiciona dicas práticas se disponíveis
+        if "DICAS" in roteiro_completo:
+            story.append(PageBreak())
+            story.append(Paragraph("Dicas Práticas", heading_style))
+            
+            dicas_texto = ""
+            linhas = roteiro_completo.split('\n')
+            in_dicas = False
+            
+            for linha in linhas:
+                if "DICAS" in linha:
+                    in_dicas = True
+                    continue
+                if in_dicas and linha.strip() and not linha.startswith('#'):
+                    dicas_texto += "• " + linha.strip() + "<br/>"
+            
+            story.append(Paragraph(dicas_texto, normal_style))
         
+        # Gera o PDF
         doc.build(story)
         
         print(f"✅ PDF gerado: {caminho_pdf}", flush=True)
