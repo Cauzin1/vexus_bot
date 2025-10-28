@@ -820,67 +820,81 @@ def gerar_roteiro(telefone, dados):
         traceback.print_exc()
         enviar_mensagem(telefone, "Desculpe, tive um problema ao gerar o roteiro. Tente novamente!")
 
-def gerar_e_enviar_pdf(telefone):
-    """Gera e envia PDF do roteiro"""
+def gerar_roteiro(telefone, dados):
+    """Gera roteiro usando Gemini"""
     try:
-        from utils.pdf_generator import gerar_pdf
+        preferencias = carregar_preferencias(telefone)
+        contexto_perfil = ""
         
-        sessao = carregar_sessao(telefone)
-        dados = sessao.get('dados', {})
+        if preferencias.get('interesses'):
+            contexto_perfil = f"\nPerfil do viajante: Interesses em {preferencias.get('interesses')}"
         
-        if not dados.get('roteiro_completo'):
-            enviar_mensagem(telefone, "❌ Não encontrei um roteiro. Crie um roteiro primeiro!")
-            return
-        
-        enviar_mensagem(telefone, "📄 Gerando seu PDF... Aguarde alguns segundos...")
-        
-        print(f"📄 DEBUG PDF: Dados disponíveis: {list(dados.keys())}", flush=True)
-        
-        caminho_pdf = gerar_pdf(
-            destino=dados.get('destino', 'Roteiro'),
-            datas=dados.get('datas', ''),
-            tabela=dados.get('tabela_itinerario', ''),
-            descricao=dados.get('roteiro_completo', ''),
-            session_id=telefone
+        prompt = (
+            f"Crie um roteiro de viagem detalhado para {dados['destino']} "
+            f"de {dados['datas']} com orçamento de {dados['orcamento']}.{contexto_perfil}\n\n"
+            "IMPORTANTE: Inclua uma tabela Markdown com as seguintes colunas:\n"
+            "| DATA | DIA | LOCAL | ATIVIDADE |\n\n"
+            "Após a tabela, adicione:\n"
+            "- Dicas práticas\n"
+            "- Restaurantes recomendados\n"
+            "- Informações úteis sobre transporte e hospedagem"
         )
         
-        enviar_documento(telefone, caminho_pdf, "roteiro.pdf")
+        response = model.generate_content(prompt)
+        roteiro = response.text
         
-        os.remove(caminho_pdf)
+        # Garantir que a tabela Markdown tenha pelo menos um dado válido
+        if "| DATA | DIA | LOCAL | ATIVIDADE |" not in roteiro:
+            raise ValueError("Tabela Markdown não foi gerada corretamente.")
         
-        enviar_mensagem(telefone, "✅ PDF enviado com sucesso!")
+        tabela_extraida = extrair_tabela_markdown(roteiro)
+        
+        dados['roteiro_completo'] = roteiro
+        dados['tabela_itinerario'] = tabela_extraida
+        dados['descricao_detalhada'] = roteiro
+        
+        salvar_sessao(telefone, 'ROTEIRO_GERADO', dados)
+        
+        print(f"📊 DEBUG: Tabela extraída tem {len(tabela_extraida.split(chr(10)))} linhas", flush=True)
+        
+        # Se a tabela for grande, envia em partes
+        if len(roteiro) > 4000:
+            partes = [roteiro[i:i+4000] for i in range(0, len(roteiro), 4000)]
+            for i, parte in enumerate(partes):
+                enviar_mensagem(telefone, f"📄 *Parte {i+1}/{len(partes)}*\n\n{parte}")
+        else:
+            enviar_mensagem(telefone, f"🎉 *Seu Roteiro Personalizado*\n\n{roteiro}")
+        
         enviar_menu_pos_roteiro(telefone)
         
     except Exception as e:
-        print(f"❌ Erro ao gerar PDF: {e}", flush=True)
+        print(f"❌ Erro ao gerar roteiro: {e}", flush=True)
         traceback.print_exc()
-        enviar_mensagem(telefone, "❌ Desculpe, tive um problema ao gerar o PDF.")
+        enviar_mensagem(telefone, "Desculpe, tive um problema ao gerar o roteiro. Tente novamente!")
 
-def markdown_table_to_dataframe(markdown_table: str):
-    """Converte tabela Markdown em DataFrame pandas"""
-    import pandas as pd
+def extrair_tabela_markdown(texto: str) -> str:
+    """Extrai e formata a tabela Markdown corretamente"""
+    linhas_tabela = []
+    linhas = texto.split("\n")
     
-    linhas = [linha.strip() for linha in markdown_table.split('\n') if linha.strip()]
-    
-    linhas_dados = [l for l in linhas if not all(c in '|:- ' for c in l)]
-    
-    if not linhas_dados:
-        raise ValueError("Nenhuma linha de dados encontrada na tabela")
-    
-    headers = [col.strip() for col in linhas_dados[0].split('|') if col.strip()]
-    
-    dados = []
-    for linha in linhas_dados[1:]:
-        colunas = [col.strip() for col in linha.split('|') if col.strip()]
+    # Busca pela tabela Markdown
+    in_tabela = False
+    for linha in linhas:
+        if linha.startswith("| DATA | DIA | LOCAL | ATIVIDADE |"):
+            in_tabela = True
         
-        while len(colunas) < len(headers):
-            colunas.append('')
+        if in_tabela:
+            linhas_tabela.append(linha.strip())
         
-        colunas = colunas[:len(headers)]
-        
-        dados.append(colunas)
+        if in_tabela and linha.strip() == "":
+            break
     
-    return pd.DataFrame(dados, columns=headers)
+    if len(linhas_tabela) < 2:
+        raise ValueError("Tabela não encontrada ou vazia no texto.")
+    
+    # Converte a tabela extraída para um formato adequado
+    tabela_formatada = "\n".join(linhas_tabela)
+    return tabela_formatada
 
 def gerar_e_enviar_excel(telefone):
     """Gera e envia planilha Excel do roteiro"""
