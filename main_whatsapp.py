@@ -763,6 +763,7 @@ def processar_botao(telefone, button_id, nome_usuario="Viajante"):
     if button_id == "menu_planejar":
         salvar_sessao(telefone, 'AGUARDANDO_DESTINO', {})
         enviar_mensagem(telefone, "✈️ Ótimo! Para qual cidade ou país você quer um roteiro?")
+        return  # IMPORTANTE: retorna aqui para não continuar
 
     elif button_id == "menu_ajuda":
         texto_ajuda = (
@@ -773,9 +774,11 @@ def processar_botao(telefone, button_id, nome_usuario="Viajante"):
             "Estou aqui para ajudar! ✈️"
         )
         enviar_mensagem(telefone, texto_ajuda)
+        return  # IMPORTANTE: retorna aqui
     
     elif button_id == "menu_perfil":
         enviar_menu_perfil(telefone)
+        return  # IMPORTANTE: retorna aqui
     
     elif button_id == "ver_perfil":
         preferencias = carregar_preferencias(telefone)
