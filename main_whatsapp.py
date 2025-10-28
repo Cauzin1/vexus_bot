@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 import traceback
 import threading
 import time
-import requests
+import sys
 
 # === CARREGA VARIÁVEIS ===
 load_dotenv()
@@ -36,9 +36,11 @@ def escolher_modelo():
     """Escolhe o melhor modelo Gemini disponível"""
     disponiveis = [m.name for m in genai.list_models()]
     for candidato in [
+        "models/gemini-2.5-flash",
+        "models/gemini-2.0-flash-001",
+        "models/gemini-flash-latest",
         "models/gemini-1.5-flash",
         "models/gemini-1.5-pro",
-        "models/gemini-flash-latest",
         "models/gemini-pro-latest"
     ]:
         if candidato in disponiveis:
@@ -53,9 +55,9 @@ def escolher_modelo():
 try:
     GEMINI_MODEL = escolher_modelo()
     model = genai.GenerativeModel(GEMINI_MODEL)
-    print(f"✅ Gemini configurado: {GEMINI_MODEL}")
+    print(f"✅ Gemini configurado: {GEMINI_MODEL}", flush=True)
 except Exception as e:
-    print(f"❌ Erro na configuração do Gemini: {e}")
+    print(f"❌ Erro na configuração do Gemini: {e}", flush=True)
     exit()
 
 # === CONFIG RAG ===
@@ -99,9 +101,9 @@ RESPOSTA:
         | llm
         | StrOutputParser()
     )
-    print("✅ Sistema RAG carregado com sucesso!")
+    print("✅ Sistema RAG carregado com sucesso!", flush=True)
 except Exception as e:
-    print(f"⚠️ Erro ao carregar RAG: {e}")
+    print(f"⚠️ Erro ao carregar RAG: {e}", flush=True)
     rag_chain = None
 
 # === BANCO DE DADOS ===
@@ -143,7 +145,7 @@ def inicializar_banco():
     
     conn.commit()
     conn.close()
-    print("🗄️ Banco de dados inicializado!")
+    print("🗄️ Banco de dados inicializado!", flush=True)
 
 def migrar_banco():
     """Adiciona colunas ausentes em bancos existentes"""
@@ -154,10 +156,10 @@ def migrar_banco():
     try:
         cursor.execute("SELECT modo FROM sessoes LIMIT 1")
     except sqlite3.OperationalError:
-        print("🔧 Migrando banco: adicionando coluna 'modo'...")
+        print("🔧 Migrando banco: adicionando coluna 'modo'...", flush=True)
         cursor.execute("ALTER TABLE sessoes ADD COLUMN modo TEXT")
         conn.commit()
-        print("✅ Migração concluída!")
+        print("✅ Migração concluída!", flush=True)
     
     conn.close()
 
@@ -245,7 +247,7 @@ def extrair_tabela_markdown(texto: str) -> str:
                 linhas_tabela.append(linha)
     
     resultado = '\n'.join(linhas_tabela)
-    print(f"📋 DEBUG: Extraídas {len(linhas_tabela)} linhas de tabela")
+    print(f"📋 DEBUG: Extraídas {len(linhas_tabela)} linhas de tabela", flush=True)
     return resultado
 
 DATE_FORMAT_HELP = "Por favor, informe as datas no formato: *DD/MM a DD/MM* (ex.: *10/07 a 18/07*)."
@@ -291,7 +293,7 @@ def analisar_resposta_data(texto_usuario: str, destino: str) -> dict:
         data = _extrair_json_seguro(response.text)
         return data if data else {"classificacao": "indefinido"}
     except Exception as e:
-        print(f"ERRO AO ANALISAR RESPOSTA DE DATA: {e}")
+        print(f"ERRO AO ANALISAR RESPOSTA DE DATA: {e}", flush=True)
         return {"classificacao": "indefinido"}
 
 def analisar_mensagem_geral(texto_usuario: str) -> str:
@@ -328,14 +330,15 @@ def enviar_mensagem(destino, texto):
     response = requests.post(url, headers=headers, json=payload)
     
     if response.status_code == 401:
-        print(f"❌ ERRO 401: Token inválido ou expirado!")
-        print(f"   Gere um novo token em: https://developers.facebook.com/apps")
-        print(f"   Resposta: {response.text}")
+        print(f"❌ ERRO 401: Token inválido ou expirado!", flush=True)
+        print(f"   Gere um novo token em: https://developers.facebook.com/apps", flush=True)
+        print(f"   Resposta: {response.text}", flush=True)
     elif response.status_code != 200:
-        print(f"⚠️ Erro {response.status_code}: {response.text}")
+        print(f"⚠️ Erro {response.status_code}: {response.text}", flush=True)
     else:
-        print(f"→ Mensagem para {destino}: {response.status_code}")
+        print(f"→ Mensagem para {destino}: {response.status_code}", flush=True)
     
+    sys.stdout.flush()
     return response
 
 def enviar_menu_principal(destino):
@@ -382,7 +385,8 @@ def enviar_menu_principal(destino):
         }
     }
     response = requests.post(url, headers=headers, json=payload)
-    print(f"→ Menu enviado: {response.status_code}")
+    print(f"→ Menu enviado: {response.status_code}", flush=True)
+    sys.stdout.flush()
     return response
 
 def enviar_menu_pos_roteiro(destino):
@@ -429,6 +433,8 @@ def enviar_menu_pos_roteiro(destino):
         }
     }
     response = requests.post(url, headers=headers, json=payload)
+    print(f"→ Menu pós-roteiro enviado: {response.status_code}", flush=True)
+    sys.stdout.flush()
     return response
 
 def enviar_menu_perfil(destino):
@@ -475,6 +481,7 @@ def enviar_menu_perfil(destino):
         }
     }
     response = requests.post(url, headers=headers, json=payload)
+    sys.stdout.flush()
     return response
 
 def enviar_selecao_interesses(destino, interesses_atuais):
@@ -522,6 +529,7 @@ def enviar_selecao_interesses(destino, interesses_atuais):
         }
     }
     response = requests.post(url, headers=headers, json=payload)
+    sys.stdout.flush()
     return response
 
 def enviar_documento(destino, caminho_arquivo, nome_arquivo):
@@ -538,7 +546,7 @@ def enviar_documento(destino, caminho_arquivo, nome_arquivo):
     else:
         mime_type = 'application/octet-stream'
     
-    print(f"📤 Enviando arquivo: {nome_arquivo} (tipo: {mime_type})")
+    print(f"📤 Enviando arquivo: {nome_arquivo} (tipo: {mime_type})", flush=True)
     
     # Upload do arquivo
     url_upload = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/media"
@@ -552,11 +560,11 @@ def enviar_documento(destino, caminho_arquivo, nome_arquivo):
         response_upload = requests.post(url_upload, headers=headers, files=files)
     
     if response_upload.status_code != 200:
-        print(f"❌ Erro no upload ({response_upload.status_code}): {response_upload.text}")
+        print(f"❌ Erro no upload ({response_upload.status_code}): {response_upload.text}", flush=True)
         raise Exception(f"Falha ao fazer upload: {response_upload.text[:200]}")
     
     media_id = response_upload.json().get('id')
-    print(f"✅ Upload realizado! Media ID: {media_id}")
+    print(f"✅ Upload realizado! Media ID: {media_id}", flush=True)
     
     # Envia mensagem com documento
     url_send = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
@@ -574,13 +582,14 @@ def enviar_documento(destino, caminho_arquivo, nome_arquivo):
         }
     }
     
-    response_send = requests.post(url_send, headers=headers, json=payload)
+    response_send = requests.post(url, headers=headers, json=payload)
     
     if response_send.status_code != 200:
-        print(f"❌ Erro ao enviar documento ({response_send.status_code}): {response_send.text}")
+        print(f"❌ Erro ao enviar documento ({response_send.status_code}): {response_send.text}", flush=True)
     else:
-        print(f"→ Documento enviado: {response_send.status_code}")
+        print(f"→ Documento enviado: {response_send.status_code}", flush=True)
     
+    sys.stdout.flush()
     return response_send
 
 # === LÓGICA DE PROCESSAMENTO ===
@@ -592,14 +601,14 @@ def processar_comando(telefone, texto, nome_usuario="Viajante"):
     dados = sessao['dados']
     modo = sessao.get('modo')
 
-    print(f"🔍 DEBUG: Estado={estado}, Modo={modo}, Texto={texto_lower[:50]}")
+    print(f"🔍 DEBUG: Estado={estado}, Modo={modo}, Texto={texto_lower[:50]}", flush=True)
 
     # Detecção de saudação ANTES de qualquer estado (para resetar conversa)
     saudacoes = ['oi', 'olá', 'ola', 'hey', 'bom dia', 'boa tarde', 'boa noite', 'eai', 'e ai', 'opa']
     eh_saudacao = any(saudacao == texto_lower or texto_lower.startswith(saudacao + ' ') for saudacao in saudacoes)
     
     if eh_saudacao:
-        print("✅ Detectada saudação - resetando sessão")
+        print("✅ Detectada saudação - resetando sessão", flush=True)
         limpar_sessao(telefone)
         salvar_preferencia(telefone, 'nome', nome_usuario)
         
@@ -636,7 +645,7 @@ def processar_comando(telefone, texto, nome_usuario="Viajante"):
                 enviar_mensagem(telefone, resposta)
                 enviar_mensagem(telefone, "\n\n💡 Quer fazer outra pergunta? Digite sua dúvida ou 'menu' para voltar.")
             except Exception as e:
-                print(f"Erro no RAG: {e}")
+                print(f"Erro no RAG: {e}", flush=True)
                 enviar_mensagem(telefone, "Desculpe, tive um problema ao consultar o guia.")
         else:
             enviar_mensagem(telefone, "Desculpe, sistema de consulta offline.")
@@ -681,7 +690,7 @@ def processar_comando(telefone, texto, nome_usuario="Viajante"):
                 response = model.generate_content(prompt_resposta)
                 enviar_mensagem(telefone, f"{response.text}\n\n{DATE_FORMAT_HELP}")
             except Exception as e:
-                print(f"Erro ao responder pergunta: {e}")
+                print(f"Erro ao responder pergunta: {e}", flush=True)
                 enviar_mensagem(telefone, f"Desculpe, tive um problema. {DATE_FORMAT_HELP}")
             return
         
@@ -701,7 +710,7 @@ def processar_comando(telefone, texto, nome_usuario="Viajante"):
         return
 
     elif estado == 'ROTEIRO_GERADO':
-        print(f"⚠️ Estado ROTEIRO_GERADO - enviando menu pós-roteiro")
+        print(f"⚠️ Estado ROTEIRO_GERADO - enviando menu pós-roteiro", flush=True)
         if 'pdf' in texto_lower:
             gerar_e_enviar_pdf(telefone)
         elif 'excel' in texto_lower or 'planilha' in texto_lower:
@@ -712,7 +721,7 @@ def processar_comando(telefone, texto, nome_usuario="Viajante"):
         return
 
     # Sem estado definido
-    print(f"ℹ️ Sem estado definido, enviando menu principal")
+    print(f"ℹ️ Sem estado definido, enviando menu principal", flush=True)
     enviar_menu_principal(telefone)
 
 def processar_botao(telefone, button_id, nome_usuario="Viajante"):
@@ -838,7 +847,7 @@ def gerar_roteiro(telefone, dados):
         
         salvar_sessao(telefone, 'ROTEIRO_GERADO', dados)
         
-        print(f"📊 DEBUG: Tabela extraída tem {len(tabela_extraida.split(chr(10)))} linhas")
+        print(f"📊 DEBUG: Tabela extraída tem {len(tabela_extraida.split(chr(10)))} linhas", flush=True)
         
         # Envia roteiro (divide se necessário)
         if len(roteiro) > 4000:
@@ -852,7 +861,7 @@ def gerar_roteiro(telefone, dados):
         enviar_menu_pos_roteiro(telefone)
         
     except Exception as e:
-        print(f"Erro ao gerar roteiro: {e}")
+        print(f"Erro ao gerar roteiro: {e}", flush=True)
         traceback.print_exc()
         enviar_mensagem(telefone, "Desculpe, tive um problema ao gerar o roteiro. Tente novamente!")
 
@@ -870,7 +879,7 @@ def gerar_e_enviar_pdf(telefone):
         
         enviar_mensagem(telefone, "📄 Gerando seu PDF... Aguarde alguns segundos...")
         
-        print(f"📄 DEBUG PDF: Dados disponíveis: {list(dados.keys())}")
+        print(f"📄 DEBUG PDF: Dados disponíveis: {list(dados.keys())}", flush=True)
         
         caminho_pdf = gerar_pdf(
             destino=dados.get('destino', 'Roteiro'),
@@ -888,7 +897,7 @@ def gerar_e_enviar_pdf(telefone):
         enviar_menu_pos_roteiro(telefone)
         
     except Exception as e:
-        print(f"❌ Erro ao gerar PDF: {e}")
+        print(f"❌ Erro ao gerar PDF: {e}", flush=True)
         traceback.print_exc()
         enviar_mensagem(telefone, f"❌ Desculpe, tive um problema ao gerar o PDF.")
 
@@ -939,8 +948,8 @@ def gerar_e_enviar_excel(telefone):
         
         tabela = dados.get('tabela_itinerario', '')
         
-        print(f"📊 DEBUG EXCEL: Tabela tem {len(tabela)} caracteres")
-        print(f"📊 DEBUG EXCEL: Primeiras 200 chars: {tabela[:200]}")
+        print(f"📊 DEBUG EXCEL: Tabela tem {len(tabela)} caracteres", flush=True)
+        print(f"📊 DEBUG EXCEL: Primeiras 200 chars: {tabela[:200]}", flush=True)
         
         if not tabela or tabela.count('|') < 6:
             enviar_mensagem(
@@ -955,11 +964,11 @@ def gerar_e_enviar_excel(telefone):
         # Converte Markdown para DataFrame
         try:
             df = markdown_table_to_dataframe(tabela)
-            print(f"✅ DataFrame criado: {df.shape[0]} linhas x {df.shape[1]} colunas")
-            print(f"   Colunas: {list(df.columns)}")
+            print(f"✅ DataFrame criado: {df.shape[0]} linhas x {df.shape[1]} colunas", flush=True)
+            print(f"   Colunas: {list(df.columns)}", flush=True)
             
         except Exception as e_parse:
-            print(f"❌ Erro ao parsear tabela Markdown: {e_parse}")
+            print(f"❌ Erro ao parsear tabela Markdown: {e_parse}", flush=True)
             # Fallback: envia tabela como texto
             caminho_txt = f"roteiro_{telefone}.txt"
             with open(caminho_txt, 'w', encoding='utf-8') as f:
@@ -1011,7 +1020,7 @@ def gerar_e_enviar_excel(telefone):
             # Congela primeira linha
             worksheet.freeze_panes = 'A2'
         
-        print(f"✅ Excel gerado com sucesso: {caminho_xlsx}")
+        print(f"✅ Excel gerado com sucesso: {caminho_xlsx}", flush=True)
         
         # Envia arquivo
         enviar_documento(telefone, caminho_xlsx, "roteiro.xlsx")
@@ -1021,7 +1030,7 @@ def gerar_e_enviar_excel(telefone):
         enviar_menu_pos_roteiro(telefone)
         
     except Exception as e:
-        print(f"❌ Erro crítico ao gerar planilha: {e}")
+        print(f"❌ Erro crítico ao gerar planilha: {e}", flush=True)
         traceback.print_exc()
         
         # Último fallback: envia roteiro completo como TXT
@@ -1045,21 +1054,25 @@ def verificar_webhook():
     challenge = request.args.get("hub.challenge")
 
     if mode == "subscribe" and token == VERIFY_TOKEN:
-        print("✅ Webhook verificado com sucesso!")
+        print("✅ Webhook verificado com sucesso!", flush=True)
         return challenge, 200
     else:
-        print("❌ Falha na verificação do webhook")
+        print("❌ Falha na verificação do webhook", flush=True)
         return "Erro de verificação", 403
 
 @app.route("/webhook", methods=["POST"])
 def receber_mensagem():
     """Recebe e processa mensagens do WhatsApp"""
     data = request.get_json()
-    print("📩 Webhook recebido:")
-    print(json.dumps(data, indent=2))
+    print("=" * 60, flush=True)
+    print("📩 WEBHOOK RECEBIDO:", flush=True)
+    print(json.dumps(data, indent=2), flush=True)
+    print("=" * 60, flush=True)
+    sys.stdout.flush()
 
     try:
         if "entry" not in data:
+            print("⚠️ Webhook sem 'entry', ignorando", flush=True)
             return "ok", 200
 
         for entry in data["entry"]:
@@ -1080,7 +1093,7 @@ def receber_mensagem():
                         # Mensagem de texto
                         if message["type"] == "text":
                             texto = message["text"]["body"]
-                            print(f"📨 Mensagem de {telefone} ({nome_usuario}): {texto}")
+                            print(f"📨 MENSAGEM DE {telefone} ({nome_usuario}): {texto}", flush=True)
                             processar_comando(telefone, texto, nome_usuario)
                         
                         # Resposta de botão interativo
@@ -1089,24 +1102,36 @@ def receber_mensagem():
                             
                             if interactive_type == "button_reply":
                                 button_id = message["interactive"]["button_reply"]["id"]
-                                print(f"🔘 Botão clicado: {button_id}")
+                                print(f"🔘 BOTÃO CLICADO: {button_id}", flush=True)
                                 processar_botao(telefone, button_id, nome_usuario)
                             
                             elif interactive_type == "list_reply":
                                 row_id = message["interactive"]["list_reply"]["id"]
-                                print(f"📋 Item de lista clicado: {row_id}")
+                                print(f"📋 ITEM DE LISTA CLICADO: {row_id}", flush=True)
                                 processar_botao(telefone, row_id, nome_usuario)
+                else:
+                    print(f"ℹ️ Webhook recebido mas sem mensagens (provavelmente status)", flush=True)
 
     except Exception as e:
-        print(f"❌ Erro ao processar mensagem: {e}")
+        print(f"❌ ERRO AO PROCESSAR MENSAGEM: {e}", flush=True)
         traceback.print_exc()
+        sys.stdout.flush()
 
     return "ok", 200
 
 @app.route("/", methods=["GET"])
-def health():
-    """Health check"""
+def home():
+    """Página inicial"""
     return "VexusBot WhatsApp está online! ✅", 200
+
+@app.route("/health", methods=["GET"])
+def health():
+    """Health check para monitoramento"""
+    import datetime
+    uptime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"🏥 Health check - {uptime}", flush=True)
+    sys.stdout.flush()
+    return f"VexusBot WhatsApp está online! ✅ ({uptime})", 200
 
 @app.route("/status", methods=["GET"])
 def status():
@@ -1124,29 +1149,35 @@ def keep_alive_ping():
         try:
             time.sleep(600)  # 10 minutos
             # Pinga o próprio servidor
-            url = f"https://{os.getenv('RENDER_EXTERNAL_URL', 'localhost')}/health"
+            render_url = os.getenv('RENDER_EXTERNAL_URL')
+            if render_url:
+                url = f"https://{render_url}/health"
+            else:
+                url = "http://localhost:10000/health"
             requests.get(url, timeout=5)
-            print("🏓 Keep-alive ping enviado")
+            print("🏓 Keep-alive ping enviado", flush=True)
         except Exception as e:
-            print(f"⚠️ Erro no keep-alive: {e}")
-
+            print(f"⚠️ Erro no keep-alive: {e}", flush=True)
 
 # === INICIA O SERVIDOR ===
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
     debug_mode = os.getenv("DEBUG", "False").lower() == "true"
+    
+    # Inicia thread de keep-alive
     keep_alive_thread = threading.Thread(target=keep_alive_ping, daemon=True)
     keep_alive_thread.start()
     
-    print(f"🚀 VexusBot WhatsApp iniciando na porta {port}...")
-    print(f"📱 Phone Number ID: {PHONE_NUMBER_ID}")
-    print(f"🤖 Modelo Gemini: {GEMINI_MODEL}")
-    print(f"🔍 RAG Status: {'✅ Ativo' if rag_chain else '❌ Inativo'}")
-    print(f"🔧 Debug Mode: {debug_mode}")
+    print(f"🚀 VexusBot WhatsApp iniciando na porta {port}...", flush=True)
+    print(f"📱 Phone Number ID: {PHONE_NUMBER_ID}", flush=True)
+    print(f"🤖 Modelo Gemini: {GEMINI_MODEL}", flush=True)
+    print(f"🔍 RAG Status: {'✅ Ativo' if rag_chain else '❌ Inativo'}", flush=True)
+    print(f"🔧 Debug Mode: {debug_mode}", flush=True)
+    sys.stdout.flush()
     
     # Em produção, use Gunicorn (não precisa do app.run)
     # Este bloco só roda em desenvolvimento local
     if os.getenv("RENDER") is None:
         app.run(host="0.0.0.0", port=port, debug=debug_mode)
     else:
-        print("✅ Rodando em produção com Gunicorn")
+        print("✅ Rodando em produção com Gunicorn", flush=True)
