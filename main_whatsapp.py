@@ -10,6 +10,9 @@ import sqlite3
 from flask import Flask, request
 from dotenv import load_dotenv
 import traceback
+import threading
+import time
+import requests
 
 # === CARREGA VARIÁVEIS ===
 load_dotenv()
@@ -1115,10 +1118,25 @@ def status():
         "gemini_model": GEMINI_MODEL
     }, 200
 
+def keep_alive_ping():
+    """Faz ping no próprio servidor a cada 10 minutos"""
+    while True:
+        try:
+            time.sleep(600)  # 10 minutos
+            # Pinga o próprio servidor
+            url = f"https://{os.getenv('RENDER_EXTERNAL_URL', 'localhost')}/health"
+            requests.get(url, timeout=5)
+            print("🏓 Keep-alive ping enviado")
+        except Exception as e:
+            print(f"⚠️ Erro no keep-alive: {e}")
+
+
 # === INICIA O SERVIDOR ===
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
     debug_mode = os.getenv("DEBUG", "False").lower() == "true"
+    keep_alive_thread = threading.Thread(target=keep_alive_ping, daemon=True)
+    keep_alive_thread.start()
     
     print(f"🚀 VexusBot WhatsApp iniciando na porta {port}...")
     print(f"📱 Phone Number ID: {PHONE_NUMBER_ID}")
