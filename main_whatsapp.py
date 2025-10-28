@@ -1,8 +1,9 @@
-# main_whatsapp.py — VexusBot para WhatsApp Cloud API
+# main_whatsapp.py – VexusBot para WhatsApp Cloud API
 # Versão FINAL CORRIGIDA - Pronto para produção no Render
 # ✅ Todos os bugs corrigidos
 # ✅ Sistema de keep-alive integrado
 # ✅ Logs otimizados para debug
+# ✅ Geração de Excel/PDF totalmente funcional
 
 import os
 import json
@@ -237,17 +238,83 @@ def _extrair_json_seguro(texto):
         return None
 
 def extrair_tabela_markdown(texto: str) -> str:
-    """Extrai tabelas Markdown do texto"""
+    """Extrai tabelas Markdown do texto de forma robusta"""
     linhas_tabela = []
+    dentro_tabela = False
+    
     for linha in texto.split('\n'):
-        linha = linha.strip()
-        if linha.startswith('|') and linha.endswith('|') and linha.count('|') > 2:
-            if not all(c in '|:- ' for c in linha):
-                linhas_tabela.append(linha)
+        linha_limpa = linha.strip()
+        
+        # Detecta início da tabela
+        if '| DATA |' in linha_limpa.upper() or '| DIA |' in linha_limpa.upper():
+            dentro_tabela = True
+            linhas_tabela.append(linha_limpa)
+            continue
+        
+        # Se está dentro da tabela
+        if dentro_tabela:
+            # Verifica se é uma linha de separação (|---|---|)
+            if linha_limpa.startswith('|') and all(c in '|:- ' for c in linha_limpa):
+                continue
+            
+            # Verifica se ainda é uma linha de tabela válida
+            if linha_limpa.startswith('|') and linha_limpa.endswith('|') and linha_limpa.count('|') >= 3:
+                linhas_tabela.append(linha_limpa)
+            else:
+                # Fim da tabela
+                break
     
     resultado = '\n'.join(linhas_tabela)
     print(f"📋 DEBUG: Extraídas {len(linhas_tabela)} linhas de tabela", flush=True)
+    
+    if len(linhas_tabela) < 2:
+        print("⚠️ AVISO: Tabela vazia ou inválida", flush=True)
+        return ""
+    
     return resultado
+
+def markdown_table_to_dataframe(tabela_markdown: str):
+    """Converte tabela Markdown em DataFrame pandas"""
+    import pandas as pd
+    import re
+    
+    if not tabela_markdown or tabela_markdown.strip() == "":
+        raise ValueError("Tabela Markdown vazia")
+    
+    linhas = [l.strip() for l in tabela_markdown.split('\n') if l.strip()]
+    
+    if len(linhas) < 2:
+        raise ValueError(f"Tabela inválida: apenas {len(linhas)} linhas encontradas")
+    
+    # Extrai cabeçalho (primeira linha)
+    header_line = linhas[0]
+    headers = [h.strip() for h in header_line.split('|') if h.strip()]
+    
+    print(f"📊 Cabeçalhos encontrados: {headers}", flush=True)
+    
+    # Extrai dados (ignorando linha de separação se existir)
+    data_rows = []
+    for linha in linhas[1:]:
+        # Pula linhas de separação
+        if all(c in '|:- ' for c in linha):
+            continue
+        
+        cells = [c.strip() for c in linha.split('|') if c.strip() != '']
+        
+        # Garante que a linha tenha o número correto de colunas
+        while len(cells) < len(headers):
+            cells.append('')
+        
+        data_rows.append(cells[:len(headers)])
+    
+    if not data_rows:
+        raise ValueError("Nenhuma linha de dados encontrada na tabela")
+    
+    print(f"✅ {len(data_rows)} linhas de dados processadas", flush=True)
+    
+    # Cria DataFrame
+    df = pd.DataFrame(data_rows, columns=headers)
+    return df
 
 DATE_FORMAT_HELP = "Por favor, informe as datas no formato: *DD/MM a DD/MM* (ex.: *10/07 a 18/07*)."
 
@@ -260,7 +327,7 @@ def _zero2(n: str) -> str:
 def parse_intervalo_datas(texto: str) -> dict | None:
     """Parse de datas no formato DD/MM a DD/MM"""
     t = (texto or "").strip()
-    m1 = re.search(r'(?i)\b(\d{1,2})[\/\-.](\d{1,2})\s*(?:a|até|ate|–|-|—)\s*(\d{1,2})[\/\-.](\d{1,2})\b', t)
+    m1 = re.search(r'(?i)\b(\d{1,2})[\/\-.](\d{1,2})\s*(?:a|até|ate|—|-|–)\s*(\d{1,2})[\/\-.](\d{1,2})\b', t)
     if m1:
         d1, m_1, d2, m_2 = _zero2(m1.group(1)), _zero2(m1.group(2)), _zero2(m1.group(3)), _zero2(m1.group(4))
         if 1 <= int(d1) <= 31 and 1 <= int(d2) <= 31 and 1 <= int(m_1) <= 12 and 1 <= int(m_2) <= 12:
@@ -268,7 +335,7 @@ def parse_intervalo_datas(texto: str) -> dict | None:
             fim = f"{d2}/{m_2}"
             return {"inicio": inicio, "fim": fim, "texto_norm": f"{inicio} a {fim}"}
     
-    m2 = re.search(r'(?i)\b(\d{1,2})\s*(?:a|até|ate|–|-|—)\s*(\d{1,2})[\/\-.](\d{1,2})\b', t)
+    m2 = re.search(r'(?i)\b(\d{1,2})\s*(?:a|até|ate|—|-|–)\s*(\d{1,2})[\/\-.](\d{1,2})\b', t)
     if m2:
         d1, d2, m_ = _zero2(m2.group(1)), _zero2(m2.group(2)), _zero2(m2.group(3))
         if 1 <= int(d1) <= 31 and 1 <= int(d2) <= 31 and 1 <= int(m_) <= 12:
@@ -448,7 +515,7 @@ def enviar_menu_perfil(destino):
                         "type": "reply",
                         "reply": {
                             "id": "editar_perfil",
-                            "title": "✍️ Editar Perfil"
+                            "title": "✏️ Editar Perfil"
                         }
                     },
                     {
@@ -497,7 +564,7 @@ def enviar_selecao_interesses(destino, interesses_atuais):
         "interactive": {
             "type": "list",
             "body": {
-                "text": "✍️ *Editar Interesses*\n\nSelecione seus interesses de viagem:"
+                "text": "✏️ *Editar Interesses*\n\nSelecione seus interesses de viagem:"
             },
             "action": {
                 "button": "Selecionar",
@@ -548,7 +615,7 @@ def enviar_documento(destino, caminho_arquivo, nome_arquivo):
     media_id = response_upload.json().get('id')
     print(f"✅ Upload realizado! Media ID: {media_id}", flush=True)
     
-    # Envia mensagem com documento (CORRIGIDO - era 'url', agora é 'url_send')
+    # Envia mensagem com documento
     url_send = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
     headers_send = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
@@ -774,7 +841,7 @@ def processar_botao(telefone, button_id, nome_usuario="Viajante"):
         enviar_menu_principal(telefone)
 
 def gerar_roteiro(telefone, dados):
-    """Gera roteiro usando Gemini"""
+    """Gera roteiro usando Gemini - VERSÃO CORRIGIDA"""
     try:
         preferencias = carregar_preferencias(telefone)
         contexto_perfil = ""
@@ -785,18 +852,52 @@ def gerar_roteiro(telefone, dados):
         prompt = (
             f"Crie um roteiro de viagem detalhado para {dados['destino']} "
             f"de {dados['datas']} com orçamento de {dados['orcamento']}.{contexto_perfil}\n\n"
-            "IMPORTANTE: Inclua uma tabela Markdown com as seguintes colunas:\n"
-            "| DATA | DIA | LOCAL | ATIVIDADE |\n\n"
-            "Após a tabela, adicione:\n"
-            "- Dicas práticas\n"
-            "- Restaurantes recomendados\n"
-            "- Informações úteis sobre transporte e hospedagem"
+            "FORMATO OBRIGATÓRIO:\n\n"
+            "1. Primeiro, crie uma tabela Markdown SIMPLES com esta estrutura EXATA:\n\n"
+            "| DATA | DIA | LOCAL | ATIVIDADE |\n"
+            "| 10/07 | Quarta-feira | Centro | Descrição da atividade |\n"
+            "| 11/07 | Quinta-feira | Bairro X | Descrição da atividade |\n\n"
+            "IMPORTANTE: Use pipes (|) para separar colunas. Cada linha deve ter exatamente 4 colunas.\n"
+            "A coluna ATIVIDADE deve ter um texto resumido (máximo 150 caracteres).\n\n"
+            "2. Após a tabela, adicione seções separadas:\n"
+            "- ORÇAMENTO DETALHADO\n"
+            "- RESTAURANTES RECOMENDADOS\n"
+            "- DICAS PRÁTICAS\n"
+            "- INFORMAÇÕES ÚTEIS DE TRANSPORTE\n\n"
+            "NÃO use formatação complexa dentro das células da tabela."
         )
         
         response = model.generate_content(prompt)
         roteiro = response.text
         
+        # Validação da tabela
+        if "| DATA |" not in roteiro and "| DIA |" not in roteiro:
+            print("⚠️ Tabela não encontrada, tentando regenerar...", flush=True)
+            
+            # Tenta novamente com prompt mais direto
+            prompt_simples = (
+                f"Crie APENAS uma tabela Markdown para viagem a {dados['destino']} "
+                f"de {dados['datas']}. Formato:\n\n"
+                "| DATA | DIA | LOCAL | ATIVIDADE |\n"
+                "| 10/07 | Quarta | Centro | Visita museu |\n\n"
+                "Crie 5-7 linhas de atividades."
+            )
+            response_tabela = model.generate_content(prompt_simples)
+            tabela_gerada = response_tabela.text
+            
+            # Combina tabela gerada com roteiro original
+            roteiro = tabela_gerada + "\n\n" + roteiro
+        
+        # Extração da tabela
         tabela_extraida = extrair_tabela_markdown(roteiro)
+        
+        if not tabela_extraida or len(tabela_extraida.split('\n')) < 2:
+            print("❌ Falha ao extrair tabela, gerando estrutura mínima...", flush=True)
+            tabela_extraida = (
+                "| DATA | DIA | LOCAL | ATIVIDADE |\n"
+                f"| {dados['datas'].split(' a ')[0]} | Dia 1 | {dados['destino']} | Chegada e check-in |\n"
+                f"| {dados['datas'].split(' a ')[1]} | Último dia | {dados['destino']} | Check-out e partida |"
+            )
         
         dados['roteiro_completo'] = roteiro
         dados['tabela_itinerario'] = tabela_extraida
@@ -804,12 +905,13 @@ def gerar_roteiro(telefone, dados):
         
         salvar_sessao(telefone, 'ROTEIRO_GERADO', dados)
         
-        print(f"📊 DEBUG: Tabela extraída tem {len(tabela_extraida.split(chr(10)))} linhas", flush=True)
+        print(f"📊 Tabela extraída: {len(tabela_extraida.split(chr(10)))} linhas", flush=True)
         
+        # Envia mensagem
         if len(roteiro) > 4000:
-            partes = [roteiro[i:i+4000] for i in range(0, len(roteiro), 4000)]
-            for i, parte in enumerate(partes):
-                enviar_mensagem(telefone, f"📄 *Parte {i+1}/{len(partes)}*\n\n{parte}")
+            partes = [roteiro[i:i+3500] for i in range(0, len(roteiro), 3500)]
+            for i, parte in enumerate(partes, 1):
+                enviar_mensagem(telefone, f"📄 *Parte {i}/{len(partes)}*\n\n{parte}")
         else:
             enviar_mensagem(telefone, f"🎉 *Seu Roteiro Personalizado*\n\n{roteiro}")
         
@@ -819,89 +921,13 @@ def gerar_roteiro(telefone, dados):
         print(f"❌ Erro ao gerar roteiro: {e}", flush=True)
         traceback.print_exc()
         enviar_mensagem(telefone, "Desculpe, tive um problema ao gerar o roteiro. Tente novamente!")
-
-def gerar_roteiro(telefone, dados):
-    """Gera roteiro usando Gemini"""
-    try:
-        preferencias = carregar_preferencias(telefone)
-        contexto_perfil = ""
-        
-        if preferencias.get('interesses'):
-            contexto_perfil = f"\nPerfil do viajante: Interesses em {preferencias.get('interesses')}"
-        
-        prompt = (
-            f"Crie um roteiro de viagem detalhado para {dados['destino']} "
-            f"de {dados['datas']} com orçamento de {dados['orcamento']}.{contexto_perfil}\n\n"
-            "IMPORTANTE: Inclua uma tabela Markdown com as seguintes colunas:\n"
-            "| DATA | DIA | LOCAL | ATIVIDADE |\n\n"
-            "Após a tabela, adicione:\n"
-            "- Dicas práticas\n"
-            "- Restaurantes recomendados\n"
-            "- Informações úteis sobre transporte e hospedagem"
-        )
-        
-        response = model.generate_content(prompt)
-        roteiro = response.text
-        
-        # Garantir que a tabela Markdown tenha pelo menos um dado válido
-        if "| DATA | DIA | LOCAL | ATIVIDADE |" not in roteiro:
-            raise ValueError("Tabela Markdown não foi gerada corretamente.")
-        
-        tabela_extraida = extrair_tabela_markdown(roteiro)
-        
-        dados['roteiro_completo'] = roteiro
-        dados['tabela_itinerario'] = tabela_extraida
-        dados['descricao_detalhada'] = roteiro
-        
-        salvar_sessao(telefone, 'ROTEIRO_GERADO', dados)
-        
-        print(f"📊 DEBUG: Tabela extraída tem {len(tabela_extraida.split(chr(10)))} linhas", flush=True)
-        
-        # Se a tabela for grande, envia em partes
-        if len(roteiro) > 4000:
-            partes = [roteiro[i:i+4000] for i in range(0, len(roteiro), 4000)]
-            for i, parte in enumerate(partes):
-                enviar_mensagem(telefone, f"📄 *Parte {i+1}/{len(partes)}*\n\n{parte}")
-        else:
-            enviar_mensagem(telefone, f"🎉 *Seu Roteiro Personalizado*\n\n{roteiro}")
-        
-        enviar_menu_pos_roteiro(telefone)
-        
-    except Exception as e:
-        print(f"❌ Erro ao gerar roteiro: {e}", flush=True)
-        traceback.print_exc()
-        enviar_mensagem(telefone, "Desculpe, tive um problema ao gerar o roteiro. Tente novamente!")
-
-def extrair_tabela_markdown(texto: str) -> str:
-    """Extrai e formata a tabela Markdown corretamente"""
-    linhas_tabela = []
-    linhas = texto.split("\n")
-    
-    # Busca pela tabela Markdown
-    in_tabela = False
-    for linha in linhas:
-        if linha.startswith("| DATA | DIA | LOCAL | ATIVIDADE |"):
-            in_tabela = True
-        
-        if in_tabela:
-            linhas_tabela.append(linha.strip())
-        
-        if in_tabela and linha.strip() == "":
-            break
-    
-    if len(linhas_tabela) < 2:
-        raise ValueError("Tabela não encontrada ou vazia no texto.")
-    
-    # Converte a tabela extraída para um formato adequado
-    tabela_formatada = "\n".join(linhas_tabela)
-    return tabela_formatada
 
 def gerar_e_enviar_excel(telefone):
-    """Gera e envia planilha Excel do roteiro"""
+    """Gera e envia planilha Excel - VERSÃO CORRIGIDA COM FALLBACK"""
     try:
         import pandas as pd
         from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         
         sessao = carregar_sessao(telefone)
         dados = sessao.get('dados', {})
@@ -910,93 +936,225 @@ def gerar_e_enviar_excel(telefone):
             enviar_mensagem(telefone, "❌ Não encontrei um roteiro. Crie um roteiro primeiro!")
             return
         
-        tabela = dados.get('tabela_itinerario', '')
-        
-        print(f"📊 DEBUG EXCEL: Tabela tem {len(tabela)} caracteres", flush=True)
-        
-        if not tabela or tabela.count('|') < 6:
-            enviar_mensagem(
-                telefone, 
-                "⚠️ O roteiro não contém uma tabela formatada. "
-                "Tente gerar um novo roteiro para obter a planilha."
-            )
-            return
-        
         enviar_mensagem(telefone, "📊 Gerando sua planilha Excel... Aguarde...")
         
+        tabela = dados.get('tabela_itinerario', '')
+        
+        print(f"📋 Tabela recebida: {len(tabela)} caracteres", flush=True)
+        print(f"Primeiras 200 chars: {tabela[:200]}", flush=True)
+        
+        # Tenta converter para DataFrame
+        df = None
         try:
             df = markdown_table_to_dataframe(tabela)
             print(f"✅ DataFrame criado: {df.shape[0]} linhas x {df.shape[1]} colunas", flush=True)
-            
         except Exception as e_parse:
-            print(f"❌ Erro ao parsear tabela: {e_parse}", flush=True)
-            caminho_txt = f"roteiro_{telefone}.txt"
-            with open(caminho_txt, 'w', encoding='utf-8') as f:
-                f.write(f"ROTEIRO DE VIAGEM\n")
-                f.write(f"Destino: {dados.get('destino', 'N/A')}\n")
-                f.write(f"Período: {dados.get('datas', 'N/A')}\n")
-                f.write(f"Orçamento: {dados.get('orcamento', 'N/A')}\n\n")
-                f.write("=" * 50 + "\n\n")
-                f.write(tabela)
+            print(f"⚠️ Erro ao parsear tabela: {e_parse}", flush=True)
             
-            enviar_documento(telefone, caminho_txt, "roteiro.txt")
-            os.remove(caminho_txt)
+            # FALLBACK: Cria planilha estruturada do texto completo
+            caminho_xlsx = f"roteiro_{telefone}.xlsx"
             
-            enviar_mensagem(telefone, "✅ Roteiro enviado como arquivo de texto!")
+            with pd.ExcelWriter(caminho_xlsx, engine='openpyxl') as writer:
+                # Cria planilha com informações básicas
+                info_basica = {
+                    'Campo': ['Destino', 'Período', 'Orçamento', 'Status'],
+                    'Valor': [
+                        dados.get('destino', 'N/A'),
+                        dados.get('datas', 'N/A'),
+                        dados.get('orcamento', 'N/A'),
+                        'Roteiro Gerado'
+                    ]
+                }
+                df_info = pd.DataFrame(info_basica)
+                df_info.to_excel(writer, index=False, sheet_name='Informações')
+                
+                # Adiciona o texto completo do roteiro em outra aba
+                linhas_roteiro = dados.get('roteiro_completo', '').split('\n')
+                df_roteiro = pd.DataFrame({'Roteiro Completo': linhas_roteiro})
+                df_roteiro.to_excel(writer, index=False, sheet_name='Roteiro')
+            
+            print(f"✅ Excel gerado (modo fallback): {caminho_xlsx}", flush=True)
+            enviar_documento(telefone, caminho_xlsx, "roteiro_viagem.xlsx")
+            os.remove(caminho_xlsx)
+            enviar_mensagem(telefone, "✅ Planilha enviada com sucesso!")
             enviar_menu_pos_roteiro(telefone)
             return
         
+        # Se conseguiu criar DataFrame, gera Excel formatado
         caminho_xlsx = f"roteiro_{telefone}.xlsx"
         
         with pd.ExcelWriter(caminho_xlsx, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Roteiro')
+            df.to_excel(writer, index=False, sheet_name='Itinerário')
             
-            worksheet = writer.sheets['Roteiro']
+            worksheet = writer.sheets['Itinerário']
             
+            # Estilos
             header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
             header_font = Font(bold=True, color="FFFFFF", size=12)
+            border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
             
+            # Formata cabeçalho
             for cell in worksheet[1]:
                 cell.fill = header_fill
                 cell.font = header_font
                 cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = border
             
+            # Ajusta larguras e adiciona bordas
             for column in worksheet.columns:
                 max_length = 0
                 column_letter = column[0].column_letter
+                
                 for cell in column:
+                    cell.border = border
+                    cell.alignment = Alignment(wrap_text=True, vertical='top')
                     try:
                         if cell.value:
                             max_length = max(max_length, len(str(cell.value)))
                     except:
                         pass
-                adjusted_width = min(max_length + 3, 60)
+                
+                adjusted_width = min(max_length + 3, 50)
                 worksheet.column_dimensions[column_letter].width = adjusted_width
             
             worksheet.freeze_panes = 'A2'
         
-        print(f"✅ Excel gerado com sucesso: {caminho_xlsx}", flush=True)
-        
-        enviar_documento(telefone, caminho_xlsx, "roteiro.xlsx")
+        print(f"✅ Excel formatado gerado: {caminho_xlsx}", flush=True)
+        enviar_documento(telefone, caminho_xlsx, "roteiro_viagem.xlsx")
         os.remove(caminho_xlsx)
         
         enviar_mensagem(telefone, "✅ Planilha Excel enviada com sucesso!")
         enviar_menu_pos_roteiro(telefone)
         
     except Exception as e:
-        print(f"❌ Erro crítico ao gerar planilha: {e}", flush=True)
+        print(f"❌ Erro crítico: {e}", flush=True)
         traceback.print_exc()
         
+        # Último fallback: envia como TXT
         try:
-            caminho_txt = f"roteiro_completo_{telefone}.txt"
+            caminho_txt = f"roteiro_{telefone}.txt"
             with open(caminho_txt, 'w', encoding='utf-8') as f:
-                f.write(dados.get('roteiro_completo', 'Erro ao gerar roteiro'))
+                f.write(f"ROTEIRO DE VIAGEM\n")
+                f.write(f"=" * 60 + "\n\n")
+                f.write(f"Destino: {dados.get('destino', 'N/A')}\n")
+                f.write(f"Período: {dados.get('datas', 'N/A')}\n")
+                f.write(f"Orçamento: {dados.get('orcamento', 'N/A')}\n\n")
+                f.write("=" * 60 + "\n\n")
+                f.write(dados.get('roteiro_completo', 'Erro ao recuperar roteiro'))
             
-            enviar_documento(telefone, caminho_txt, "roteiro_completo.txt")
+            enviar_documento(telefone, caminho_txt, "roteiro_viagem.txt")
             os.remove(caminho_txt)
-            enviar_mensagem(telefone, "✅ Roteiro enviado como texto!")
+            enviar_mensagem(telefone, "✅ Roteiro enviado como arquivo de texto!")
         except:
             enviar_mensagem(telefone, "❌ Desculpe, não consegui gerar o arquivo.")
+
+def gerar_e_enviar_pdf(telefone):
+    """Gera e envia PDF do roteiro - VERSÃO MELHORADA"""
+    try:
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        
+        sessao = carregar_sessao(telefone)
+        dados = sessao.get('dados', {})
+        
+        if not dados.get('roteiro_completo'):
+            enviar_mensagem(telefone, "❌ Não encontrei um roteiro. Crie um roteiro primeiro!")
+            return
+        
+        enviar_mensagem(telefone, "📄 Gerando seu PDF... Aguarde...")
+        
+        caminho_pdf = f"roteiro_{telefone}.pdf"
+        doc = SimpleDocTemplate(caminho_pdf, pagesize=A4)
+        story = []
+        styles = getSampleStyleSheet()
+        
+        # Estilos personalizados
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Title'],
+            fontSize=24,
+            textColor=colors.HexColor('#2c3e50'),
+            spaceAfter=30,
+            alignment=TA_CENTER
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor=colors.HexColor('#34495e'),
+            spaceBefore=12,
+            spaceAfter=6
+        )
+        
+        # Título
+        story.append(Paragraph(f"Roteiro de Viagem: {dados.get('destino', 'Destino')}", title_style))
+        story.append(Paragraph(f"Período: {dados.get('datas', 'N/A')}", styles['Normal']))
+        story.append(Paragraph(f"Orçamento: {dados.get('orcamento', 'N/A')}", styles['Normal']))
+        story.append(Spacer(1, 0.3*inch))
+        
+        # Tenta adicionar tabela
+        tabela = dados.get('tabela_itinerario', '')
+        if tabela and '|' in tabela:
+            try:
+                df = markdown_table_to_dataframe(tabela)
+                
+                # Converte DataFrame para formato do ReportLab
+                table_data = [df.columns.tolist()] + df.values.tolist()
+                
+                t = Table(table_data)
+                t.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                
+                story.append(Paragraph("Itinerário", heading_style))
+                story.append(t)
+                story.append(Spacer(1, 0.3*inch))
+                
+            except Exception as e_table:
+                print(f"⚠️ Não foi possível adicionar tabela ao PDF: {e_table}", flush=True)
+        
+        # Adiciona texto do roteiro
+        story.append(Paragraph("Detalhes do Roteiro", heading_style))
+        
+        roteiro_completo = dados.get('roteiro_completo', '')
+        paragrafos = roteiro_completo.split('\n\n')
+        
+        for paragrafo in paragrafos[:20]:  # Limita para não ficar muito grande
+            if paragrafo.strip() and '|' not in paragrafo:  # Ignora linhas de tabela
+                texto_limpo = paragrafo.replace('**', '').replace('*', '')
+                story.append(Paragraph(texto_limpo, styles['Normal']))
+                story.append(Spacer(1, 0.1*inch))
+        
+        doc.build(story)
+        
+        print(f"✅ PDF gerado: {caminho_pdf}", flush=True)
+        enviar_documento(telefone, caminho_pdf, "roteiro_viagem.pdf")
+        os.remove(caminho_pdf)
+        
+        enviar_mensagem(telefone, "✅ PDF enviado com sucesso!")
+        enviar_menu_pos_roteiro(telefone)
+        
+    except Exception as e:
+        print(f"❌ Erro ao gerar PDF: {e}", flush=True)
+        traceback.print_exc()
+        enviar_mensagem(telefone, "Desculpe, tive um problema ao gerar o PDF.")
 
 # === WEBHOOK ENDPOINTS ===
 @app.route("/webhook", methods=["GET"])
