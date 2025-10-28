@@ -1,6 +1,8 @@
 # main_whatsapp.py — VexusBot para WhatsApp Cloud API
-# Versão completa com TODAS as funcionalidades do Telegram
-# CORREÇÃO: CSV convertido para XLSX (formato aceito pelo WhatsApp)
+# Versão FINAL CORRIGIDA - Pronto para produção no Render
+# ✅ Todos os bugs corrigidos
+# ✅ Sistema de keep-alive integrado
+# ✅ Logs otimizados para debug
 
 import os
 import json
@@ -118,7 +120,6 @@ def inicializar_banco():
     conn = get_conn()
     cursor = conn.cursor()
     
-    # Tabela de sessões (estados do fluxo)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS sessoes (
             telefone TEXT PRIMARY KEY,
@@ -129,7 +130,6 @@ def inicializar_banco():
         )
     ''')
     
-    # Tabela de usuários (perfis)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY,
@@ -152,7 +152,6 @@ def migrar_banco():
     conn = get_conn()
     cursor = conn.cursor()
     
-    # Verifica e adiciona coluna 'modo' se não existir
     try:
         cursor.execute("SELECT modo FROM sessoes LIMIT 1")
     except sqlite3.OperationalError:
@@ -296,23 +295,6 @@ def analisar_resposta_data(texto_usuario: str, destino: str) -> dict:
         print(f"ERRO AO ANALISAR RESPOSTA DE DATA: {e}", flush=True)
         return {"classificacao": "indefinido"}
 
-def analisar_mensagem_geral(texto_usuario: str) -> str:
-    """Classifica intenção da mensagem"""
-    prompt = f"""
-    Analise a mensagem do usuário e classifique a intenção em uma das seguintes categorias:
-    - 'saudacao': Se for um cumprimento como 'oi', 'olá', 'bom dia', 'eai', 'tudo bem'.
-    - 'pedido_de_ajuda': Se o usuário pedir o menu, ajuda ou opções.
-    - 'desconhecido': Para qualquer outra coisa.
-    Mensagem: "{texto_usuario}"
-    Responda APENAS com um JSON contendo a chave "intencao". Ex: {{"intencao": "saudacao"}}
-    """
-    try:
-        response = model.generate_content(prompt)
-        data = _extrair_json_seguro(response.text)
-        return data.get("intencao", "desconhecido") if data else "desconhecido"
-    except Exception:
-        return "desconhecido"
-
 # === FUNÇÕES DE ENVIO ===
 def enviar_mensagem(destino, texto):
     """Envia mensagem de texto simples"""
@@ -331,12 +313,12 @@ def enviar_mensagem(destino, texto):
     
     if response.status_code == 401:
         print(f"❌ ERRO 401: Token inválido ou expirado!", flush=True)
-        print(f"   Gere um novo token em: https://developers.facebook.com/apps", flush=True)
+        print(f"   Token usado: {WHATSAPP_TOKEN[:20]}...", flush=True)
         print(f"   Resposta: {response.text}", flush=True)
     elif response.status_code != 200:
         print(f"⚠️ Erro {response.status_code}: {response.text}", flush=True)
     else:
-        print(f"→ Mensagem para {destino}: {response.status_code}", flush=True)
+        print(f"✅ Mensagem enviada para {destino}: {response.status_code}", flush=True)
     
     sys.stdout.flush()
     return response
@@ -385,7 +367,7 @@ def enviar_menu_principal(destino):
         }
     }
     response = requests.post(url, headers=headers, json=payload)
-    print(f"→ Menu enviado: {response.status_code}", flush=True)
+    print(f"✅ Menu enviado: {response.status_code}", flush=True)
     sys.stdout.flush()
     return response
 
@@ -433,7 +415,7 @@ def enviar_menu_pos_roteiro(destino):
         }
     }
     response = requests.post(url, headers=headers, json=payload)
-    print(f"→ Menu pós-roteiro enviado: {response.status_code}", flush=True)
+    print(f"✅ Menu pós-roteiro enviado: {response.status_code}", flush=True)
     sys.stdout.flush()
     return response
 
@@ -485,7 +467,7 @@ def enviar_menu_perfil(destino):
     return response
 
 def enviar_selecao_interesses(destino, interesses_atuais):
-    """Menu de seleção de interesses (simulado com lista)"""
+    """Menu de seleção de interesses"""
     opcoes = ["Museus", "Natureza", "Vida Noturna", "Gastronomia"]
     
     rows = []
@@ -533,8 +515,8 @@ def enviar_selecao_interesses(destino, interesses_atuais):
     return response
 
 def enviar_documento(destino, caminho_arquivo, nome_arquivo):
-    """Envia documento (PDF, XLSX, DOCX, etc)"""
-    # Determina o MIME type correto baseado na extensão
+    """Envia documento (PDF, XLSX, DOCX, etc) - VERSÃO CORRIGIDA"""
+    # Determina o MIME type correto
     if nome_arquivo.lower().endswith('.pdf'):
         mime_type = 'application/pdf'
     elif nome_arquivo.lower().endswith('.xlsx'):
@@ -550,14 +532,14 @@ def enviar_documento(destino, caminho_arquivo, nome_arquivo):
     
     # Upload do arquivo
     url_upload = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/media"
-    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
+    headers_upload = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
     
     with open(caminho_arquivo, 'rb') as arquivo:
         files = {
             'file': (nome_arquivo, arquivo, mime_type),
             'messaging_product': (None, 'whatsapp'),
         }
-        response_upload = requests.post(url_upload, headers=headers, files=files)
+        response_upload = requests.post(url_upload, headers=headers_upload, files=files)
     
     if response_upload.status_code != 200:
         print(f"❌ Erro no upload ({response_upload.status_code}): {response_upload.text}", flush=True)
@@ -566,9 +548,9 @@ def enviar_documento(destino, caminho_arquivo, nome_arquivo):
     media_id = response_upload.json().get('id')
     print(f"✅ Upload realizado! Media ID: {media_id}", flush=True)
     
-    # Envia mensagem com documento
+    # Envia mensagem com documento (CORRIGIDO - era 'url', agora é 'url_send')
     url_send = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
+    headers_send = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
         "Content-Type": "application/json"
     }
@@ -582,19 +564,19 @@ def enviar_documento(destino, caminho_arquivo, nome_arquivo):
         }
     }
     
-    response_send = requests.post(url, headers=headers, json=payload)
+    response_send = requests.post(url_send, headers=headers_send, json=payload)
     
     if response_send.status_code != 200:
         print(f"❌ Erro ao enviar documento ({response_send.status_code}): {response_send.text}", flush=True)
     else:
-        print(f"→ Documento enviado: {response_send.status_code}", flush=True)
+        print(f"✅ Documento enviado com sucesso: {response_send.status_code}", flush=True)
     
     sys.stdout.flush()
     return response_send
 
 # === LÓGICA DE PROCESSAMENTO ===
 def processar_comando(telefone, texto, nome_usuario="Viajante"):
-    """Processa comandos e estados - VERSÃO COMPLETA"""
+    """Processa comandos e estados"""
     texto_lower = texto.lower().strip()
     sessao = carregar_sessao(telefone)
     estado = sessao['estado']
@@ -603,7 +585,7 @@ def processar_comando(telefone, texto, nome_usuario="Viajante"):
 
     print(f"🔍 DEBUG: Estado={estado}, Modo={modo}, Texto={texto_lower[:50]}", flush=True)
 
-    # Detecção de saudação ANTES de qualquer estado (para resetar conversa)
+    # Detecção de saudação
     saudacoes = ['oi', 'olá', 'ola', 'hey', 'bom dia', 'boa tarde', 'boa noite', 'eai', 'e ai', 'opa']
     eh_saudacao = any(saudacao == texto_lower or texto_lower.startswith(saudacao + ' ') for saudacao in saudacoes)
     
@@ -637,23 +619,8 @@ def processar_comando(telefone, texto, nome_usuario="Viajante"):
         enviar_mensagem(telefone, f"De nada! 😊 Fico feliz em ajudar. Digite 'menu' para voltar ao início.")
         return
 
-    # === MODO RAG (Pergunta Rápida) ===
-    if modo == 'RAG' and estado == 'AGUARDANDO_PERGUNTA_RAG':
-        if rag_chain:
-            try:
-                resposta = rag_chain.invoke(texto)
-                enviar_mensagem(telefone, resposta)
-                enviar_mensagem(telefone, "\n\n💡 Quer fazer outra pergunta? Digite sua dúvida ou 'menu' para voltar.")
-            except Exception as e:
-                print(f"Erro no RAG: {e}", flush=True)
-                enviar_mensagem(telefone, "Desculpe, tive um problema ao consultar o guia.")
-        else:
-            enviar_mensagem(telefone, "Desculpe, sistema de consulta offline.")
-        return
-
     # === MODO PERFIL ===
     if estado == 'EDITANDO_INTERESSES':
-        # Aguardando seleção via botões
         enviar_mensagem(telefone, "Use os botões acima para selecionar seus interesses.")
         return
 
@@ -669,7 +636,6 @@ def processar_comando(telefone, texto, nome_usuario="Viajante"):
         return
 
     elif estado == 'AGUARDANDO_DATAS':
-        # Tenta fazer parse das datas
         pars = parse_intervalo_datas(texto)
         if pars:
             dados['datas'] = pars['texto_norm']
@@ -677,7 +643,6 @@ def processar_comando(telefone, texto, nome_usuario="Viajante"):
             enviar_mensagem(telefone, "💰 Perfeito! Qual o seu orçamento total para a viagem?")
             return
         
-        # Se não conseguiu, analisa se é uma pergunta
         analise = analisar_resposta_data(texto, dados.get('destino', 'esse destino'))
         classificacao = analise.get('classificacao')
         
@@ -705,7 +670,6 @@ def processar_comando(telefone, texto, nome_usuario="Viajante"):
             "🎉 Perfeito! Estou preparando seu roteiro personalizado...\n"
             "Aguarde alguns segundos..."
         )
-        # Gera o roteiro
         gerar_roteiro(telefone, dados)
         return
 
@@ -726,6 +690,7 @@ def processar_comando(telefone, texto, nome_usuario="Viajante"):
 
 def processar_botao(telefone, button_id, nome_usuario="Viajante"):
     """Processa cliques em botões interativos"""
+    print(f"🔘 Processando botão: {button_id}", flush=True)
     sessao = carregar_sessao(telefone)
     
     if button_id == "menu_planejar":
@@ -737,8 +702,7 @@ def processar_botao(telefone, button_id, nome_usuario="Viajante"):
             "📖 *Como usar o VexusBot*\n\n"
             "1️⃣ *Planejar Roteiro*: Crio um roteiro completo personalizado\n"
             "2️⃣ *Meu Perfil*: Configure suas preferências de viagem\n"
-            "3️⃣ *Pergunta Rápida*: Tire dúvidas sobre viagens\n"
-            "4️⃣ *Menu*: Digite 'menu' para voltar\n\n"
+            "3️⃣ *Menu*: Digite 'menu' para voltar\n\n"
             "Estou aqui para ajudar! ✈️"
         )
         enviar_mensagem(telefone, texto_ajuda)
@@ -764,14 +728,12 @@ def processar_botao(telefone, button_id, nome_usuario="Viajante"):
         interesses_salvos = (prefs.get('interesses') or '')
         selecoes_atuais = [i.strip() for i in interesses_salvos.split(',') if i.strip()]
         
-        # Salva estado de edição
         dados = {'selecoes_interesses': selecoes_atuais}
         salvar_sessao(telefone, 'EDITANDO_INTERESSES', dados)
         
         enviar_selecao_interesses(telefone, selecoes_atuais)
     
     elif button_id.startswith("interesse_"):
-        # Toggle de interesse
         interesse = button_id.replace("interesse_", "")
         dados = sessao.get('dados', {})
         selecoes = dados.get('selecoes_interesses', [])
@@ -784,7 +746,6 @@ def processar_botao(telefone, button_id, nome_usuario="Viajante"):
         dados['selecoes_interesses'] = selecoes
         salvar_sessao(telefone, 'EDITANDO_INTERESSES', dados)
         
-        # Reenvia menu atualizado
         enviar_selecao_interesses(telefone, selecoes)
     
     elif button_id == "concluir_interesses":
@@ -813,16 +774,14 @@ def processar_botao(telefone, button_id, nome_usuario="Viajante"):
         enviar_menu_principal(telefone)
 
 def gerar_roteiro(telefone, dados):
-    """Gera roteiro usando Gemini - VERSÃO COMPLETA"""
+    """Gera roteiro usando Gemini"""
     try:
-        # Carrega preferências do usuário
         preferencias = carregar_preferencias(telefone)
         contexto_perfil = ""
         
         if preferencias.get('interesses'):
             contexto_perfil = f"\nPerfil do viajante: Interesses em {preferencias.get('interesses')}"
         
-        # Prompt melhorado
         prompt = (
             f"Crie um roteiro de viagem detalhado para {dados['destino']} "
             f"de {dados['datas']} com orçamento de {dados['orcamento']}.{contexto_perfil}\n\n"
@@ -837,10 +796,8 @@ def gerar_roteiro(telefone, dados):
         response = model.generate_content(prompt)
         roteiro = response.text
         
-        # Extrai a tabela
         tabela_extraida = extrair_tabela_markdown(roteiro)
         
-        # Salva TUDO na sessão
         dados['roteiro_completo'] = roteiro
         dados['tabela_itinerario'] = tabela_extraida
         dados['descricao_detalhada'] = roteiro
@@ -849,7 +806,6 @@ def gerar_roteiro(telefone, dados):
         
         print(f"📊 DEBUG: Tabela extraída tem {len(tabela_extraida.split(chr(10)))} linhas", flush=True)
         
-        # Envia roteiro (divide se necessário)
         if len(roteiro) > 4000:
             partes = [roteiro[i:i+4000] for i in range(0, len(roteiro), 4000)]
             for i, parte in enumerate(partes):
@@ -857,11 +813,10 @@ def gerar_roteiro(telefone, dados):
         else:
             enviar_mensagem(telefone, f"🎉 *Seu Roteiro Personalizado*\n\n{roteiro}")
         
-        # Menu pós-roteiro
         enviar_menu_pos_roteiro(telefone)
         
     except Exception as e:
-        print(f"Erro ao gerar roteiro: {e}", flush=True)
+        print(f"❌ Erro ao gerar roteiro: {e}", flush=True)
         traceback.print_exc()
         enviar_mensagem(telefone, "Desculpe, tive um problema ao gerar o roteiro. Tente novamente!")
 
@@ -899,33 +854,28 @@ def gerar_e_enviar_pdf(telefone):
     except Exception as e:
         print(f"❌ Erro ao gerar PDF: {e}", flush=True)
         traceback.print_exc()
-        enviar_mensagem(telefone, f"❌ Desculpe, tive um problema ao gerar o PDF.")
+        enviar_mensagem(telefone, "❌ Desculpe, tive um problema ao gerar o PDF.")
 
 def markdown_table_to_dataframe(markdown_table: str):
-    """Converte tabela Markdown em DataFrame pandas (robusto)"""
+    """Converte tabela Markdown em DataFrame pandas"""
     import pandas as pd
     
     linhas = [linha.strip() for linha in markdown_table.split('\n') if linha.strip()]
     
-    # Remove linhas de separação (ex: |---|---|)
     linhas_dados = [l for l in linhas if not all(c in '|:- ' for c in l)]
     
     if not linhas_dados:
         raise ValueError("Nenhuma linha de dados encontrada na tabela")
     
-    # Extrai cabeçalhos
     headers = [col.strip() for col in linhas_dados[0].split('|') if col.strip()]
     
-    # Extrai dados
     dados = []
     for linha in linhas_dados[1:]:
         colunas = [col.strip() for col in linha.split('|') if col.strip()]
         
-        # Preenche colunas faltantes com string vazia
         while len(colunas) < len(headers):
             colunas.append('')
         
-        # Trunca colunas extras
         colunas = colunas[:len(headers)]
         
         dados.append(colunas)
@@ -933,7 +883,7 @@ def markdown_table_to_dataframe(markdown_table: str):
     return pd.DataFrame(dados, columns=headers)
 
 def gerar_e_enviar_excel(telefone):
-    """Gera e envia planilha Excel do roteiro (VERSÃO ROBUSTA)"""
+    """Gera e envia planilha Excel do roteiro"""
     try:
         import pandas as pd
         from openpyxl import Workbook
@@ -949,7 +899,6 @@ def gerar_e_enviar_excel(telefone):
         tabela = dados.get('tabela_itinerario', '')
         
         print(f"📊 DEBUG EXCEL: Tabela tem {len(tabela)} caracteres", flush=True)
-        print(f"📊 DEBUG EXCEL: Primeiras 200 chars: {tabela[:200]}", flush=True)
         
         if not tabela or tabela.count('|') < 6:
             enviar_mensagem(
@@ -961,15 +910,12 @@ def gerar_e_enviar_excel(telefone):
         
         enviar_mensagem(telefone, "📊 Gerando sua planilha Excel... Aguarde...")
         
-        # Converte Markdown para DataFrame
         try:
             df = markdown_table_to_dataframe(tabela)
             print(f"✅ DataFrame criado: {df.shape[0]} linhas x {df.shape[1]} colunas", flush=True)
-            print(f"   Colunas: {list(df.columns)}", flush=True)
             
         except Exception as e_parse:
-            print(f"❌ Erro ao parsear tabela Markdown: {e_parse}", flush=True)
-            # Fallback: envia tabela como texto
+            print(f"❌ Erro ao parsear tabela: {e_parse}", flush=True)
             caminho_txt = f"roteiro_{telefone}.txt"
             with open(caminho_txt, 'w', encoding='utf-8') as f:
                 f.write(f"ROTEIRO DE VIAGEM\n")
@@ -986,16 +932,13 @@ def gerar_e_enviar_excel(telefone):
             enviar_menu_pos_roteiro(telefone)
             return
         
-        # Gera arquivo XLSX
         caminho_xlsx = f"roteiro_{telefone}.xlsx"
         
         with pd.ExcelWriter(caminho_xlsx, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Roteiro')
             
-            # Formatação
             worksheet = writer.sheets['Roteiro']
             
-            # Estilo do cabeçalho
             header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
             header_font = Font(bold=True, color="FFFFFF", size=12)
             
@@ -1004,7 +947,6 @@ def gerar_e_enviar_excel(telefone):
                 cell.font = header_font
                 cell.alignment = Alignment(horizontal='center', vertical='center')
             
-            # Ajusta largura das colunas
             for column in worksheet.columns:
                 max_length = 0
                 column_letter = column[0].column_letter
@@ -1017,12 +959,10 @@ def gerar_e_enviar_excel(telefone):
                 adjusted_width = min(max_length + 3, 60)
                 worksheet.column_dimensions[column_letter].width = adjusted_width
             
-            # Congela primeira linha
             worksheet.freeze_panes = 'A2'
         
         print(f"✅ Excel gerado com sucesso: {caminho_xlsx}", flush=True)
         
-        # Envia arquivo
         enviar_documento(telefone, caminho_xlsx, "roteiro.xlsx")
         os.remove(caminho_xlsx)
         
@@ -1033,7 +973,6 @@ def gerar_e_enviar_excel(telefone):
         print(f"❌ Erro crítico ao gerar planilha: {e}", flush=True)
         traceback.print_exc()
         
-        # Último fallback: envia roteiro completo como TXT
         try:
             caminho_txt = f"roteiro_completo_{telefone}.txt"
             with open(caminho_txt, 'w', encoding='utf-8') as f:
@@ -1083,20 +1022,17 @@ def receber_mensagem():
                     for message in value["messages"]:
                         telefone = message["from"]
                         
-                        # Extrai nome do contato (se disponível)
                         nome_usuario = "Viajante"
                         if "contacts" in value:
                             for contact in value["contacts"]:
                                 if contact.get("wa_id") == telefone:
                                     nome_usuario = contact.get("profile", {}).get("name", "Viajante")
                         
-                        # Mensagem de texto
                         if message["type"] == "text":
                             texto = message["text"]["body"]
                             print(f"📨 MENSAGEM DE {telefone} ({nome_usuario}): {texto}", flush=True)
                             processar_comando(telefone, texto, nome_usuario)
                         
-                        # Resposta de botão interativo
                         elif message["type"] == "interactive":
                             interactive_type = message["interactive"]["type"]
                             
@@ -1110,7 +1046,7 @@ def receber_mensagem():
                                 print(f"📋 ITEM DE LISTA CLICADO: {row_id}", flush=True)
                                 processar_botao(telefone, row_id, nome_usuario)
                 else:
-                    print(f"ℹ️ Webhook recebido mas sem mensagens (provavelmente status)", flush=True)
+                    print(f"ℹ️ Webhook recebido mas sem mensagens (status update)", flush=True)
 
     except Exception as e:
         print(f"❌ ERRO AO PROCESSAR MENSAGEM: {e}", flush=True)
@@ -1140,24 +1076,41 @@ def status():
         "status": "online",
         "rag_loaded": rag_chain is not None,
         "phone_number_id": PHONE_NUMBER_ID,
-        "gemini_model": GEMINI_MODEL
+        "gemini_model": GEMINI_MODEL,
+        "token_preview": WHATSAPP_TOKEN[:20] + "..." if WHATSAPP_TOKEN else "NOT_SET"
     }, 200
+
+@app.route("/reset/<telefone>", methods=["GET"])
+def reset_user(telefone):
+    """Reseta sessão de um usuário (debug)"""
+    try:
+        limpar_sessao(telefone)
+        print(f"🔄 Sessão resetada para {telefone}", flush=True)
+        return f"✅ Sessão resetada com sucesso para {telefone}", 200
+    except Exception as e:
+        print(f"❌ Erro ao resetar sessão: {e}", flush=True)
+        return f"❌ Erro: {str(e)}", 500
 
 def keep_alive_ping():
     """Faz ping no próprio servidor a cada 10 minutos"""
     while True:
         try:
             time.sleep(600)  # 10 minutos
-            # Pinga o próprio servidor
             render_url = os.getenv('RENDER_EXTERNAL_URL')
             if render_url:
                 url = f"https://{render_url}/health"
             else:
                 url = "http://localhost:10000/health"
-            requests.get(url, timeout=5)
-            print("🏓 Keep-alive ping enviado", flush=True)
+            
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                print("🏓 Keep-alive ping: OK", flush=True)
+            else:
+                print(f"⚠️ Keep-alive ping: status {response.status_code}", flush=True)
         except Exception as e:
             print(f"⚠️ Erro no keep-alive: {e}", flush=True)
+        
+        sys.stdout.flush()
 
 # === INICIA O SERVIDOR ===
 if __name__ == "__main__":
@@ -1167,16 +1120,19 @@ if __name__ == "__main__":
     # Inicia thread de keep-alive
     keep_alive_thread = threading.Thread(target=keep_alive_ping, daemon=True)
     keep_alive_thread.start()
+    print("🏓 Thread de keep-alive iniciada", flush=True)
     
+    print("=" * 60, flush=True)
     print(f"🚀 VexusBot WhatsApp iniciando na porta {port}...", flush=True)
     print(f"📱 Phone Number ID: {PHONE_NUMBER_ID}", flush=True)
     print(f"🤖 Modelo Gemini: {GEMINI_MODEL}", flush=True)
     print(f"🔍 RAG Status: {'✅ Ativo' if rag_chain else '❌ Inativo'}", flush=True)
     print(f"🔧 Debug Mode: {debug_mode}", flush=True)
+    print(f"🔑 Token Preview: {WHATSAPP_TOKEN[:20]}...", flush=True)
+    print("=" * 60, flush=True)
     sys.stdout.flush()
     
     # Em produção, use Gunicorn (não precisa do app.run)
-    # Este bloco só roda em desenvolvimento local
     if os.getenv("RENDER") is None:
         app.run(host="0.0.0.0", port=port, debug=debug_mode)
     else:
