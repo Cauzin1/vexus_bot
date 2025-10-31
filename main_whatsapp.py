@@ -927,7 +927,7 @@ def gerar_roteiro(telefone, dados):
         enviar_mensagem(telefone, "Desculpe, tive um problema ao gerar o roteiro. Tente novamente!")
 
 def gerar_e_enviar_excel(telefone):
-    """Gera e envia planilha Excel - VERSÃO CORRIGIDA COM FALLBACK"""
+    """Gera e envia planilha Excel - VERSÃO CORRIGIDA COM FALLBACK E LINKS"""
     try:
         import pandas as pd
         from openpyxl import Workbook
@@ -976,6 +976,25 @@ def gerar_e_enviar_excel(telefone):
                 linhas_roteiro = dados.get('roteiro_completo', '').split('\n')
                 df_roteiro = pd.DataFrame({'Roteiro Completo': linhas_roteiro})
                 df_roteiro.to_excel(writer, index=False, sheet_name='Roteiro')
+                
+                # === NOVA ABA: LINKS ÚTEIS ===
+                links_data = {
+                    'Serviço': ['Booking.com', 'Passagens Aéreas', 'Aluguel de Carros', 'Seguro Viagem'],
+                    'Descrição': [
+                        'Reservas de hotéis e hospedagem',
+                        'Encontre as melhores ofertas de voos', 
+                        'Alugue carros com os melhores preços',
+                        'Seguro viagem com cobertura completa'
+                    ],
+                    'Link': [
+                        'https://www.booking.com/index.en-us.html?aid=336558',
+                        'https://www.skyscanner.com.br/?previousCultureSource=GEO_LOCATION&redirectedFrom=www.skyscanner.net&associateid=AFF_TRA_19354_00001&irclickid=_ezg3amolgkkfbhjjhy3kl2pmbm2xcigkumasilhl00&irgwc=1&utm_campaign=&utm_medium=affiliate&utm_source=2916765-Viajando%20Bem',
+                        'https://www.rentcars.com/pt-br/?requestorid=68',
+                        'https://www.seguroviagem.srv.br/?ag=ViajandoBem'
+                    ]
+                }
+                df_links = pd.DataFrame(links_data)
+                df_links.to_excel(writer, index=False, sheet_name='Links Úteis')
             
             print(f"✅ Excel gerado (modo fallback): {caminho_xlsx}", flush=True)
             enviar_documento(telefone, caminho_xlsx, "roteiro_viagem.xlsx")
@@ -1027,6 +1046,37 @@ def gerar_e_enviar_excel(telefone):
                 worksheet.column_dimensions[column_letter].width = adjusted_width
             
             worksheet.freeze_panes = 'A2'
+            
+            # === NOVA ABA: LINKS ÚTEIS ===
+            links_data = {
+                'Serviço': ['Booking.com', 'Passagens Aéreas', 'Aluguel de Carros', 'Seguro Viagem'],
+                'Descrição': [
+                    'Reservas de hotéis e hospedagem',
+                    'Encontre as melhores ofertas de voos', 
+                    'Alugue carros com os melhores preços',
+                    'Seguro viagem com cobertura completa'
+                ],
+                'Link': [
+                    'https://www.booking.com/index.en-us.html?aid=336558',
+                    'https://www.skyscanner.com.br/?previousCultureSource=GEO_LOCATION&redirectedFrom=www.skyscanner.net&associateid=AFF_TRA_19354_00001&irclickid=_ezg3amolgkkfbhjjhy3kl2pmbm2xcigkumasilhl00&irgwc=1&utm_campaign=&utm_medium=affiliate&utm_source=2916765-Viajando%20Bem',
+                    'https://www.rentcars.com/pt-br/?requestorid=68',
+                    'https://www.seguroviagem.srv.br/?ag=ViajandoBem'
+                ]
+            }
+            df_links = pd.DataFrame(links_data)
+            df_links.to_excel(writer, index=False, sheet_name='Links Úteis')
+            
+            # Formata a aba de links
+            worksheet_links = writer.sheets['Links Úteis']
+            for cell in worksheet_links[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            
+            # Ajusta larguras
+            for column in worksheet_links.columns:
+                column_letter = column[0].column_letter
+                worksheet_links.column_dimensions[column_letter].width = 25
         
         print(f"✅ Excel formatado gerado: {caminho_xlsx}", flush=True)
         enviar_documento(telefone, caminho_xlsx, "roteiro_viagem.xlsx")
@@ -1050,6 +1100,14 @@ def gerar_e_enviar_excel(telefone):
                 f.write(f"Orçamento: {dados.get('orcamento', 'N/A')}\n\n")
                 f.write("=" * 60 + "\n\n")
                 f.write(dados.get('roteiro_completo', 'Erro ao recuperar roteiro'))
+                f.write("\n\n" + "=" * 60 + "\n")
+                f.write("LINKS ÚTEIS E AFILIADOS\n")
+                f.write("=" * 60 + "\n")
+                f.write("Booking.com -  https://www.booking.com/index.en-us.html?aid=336558\n")
+                f.write("Passagens Aéreas - https://www.skyscanner.com.br/?previousCultureSource=GEO_LOCATION&redirectedFrom=www.skyscanner.net&associateid=AFF_TRA_19354_00001&irclickid=_ezg3amolgkkfbhjjhy3kl2pmbm2xcigkumasilhl00&irgwc=1&utm_campaign=&utm_medium=affiliate&utm_source=2916765-Viajando%20Bem \n")
+                f.write("Aluguel de Carros - https://www.rentcars.com/pt-br/?requestorid=68\n")
+                f.write("Seguro Viagem - https://www.seguroviagem.srv.br/?ag=ViajandoBem\n")
+                f.write("\nGerado por vIAjante\n")
             
             enviar_documento(telefone, caminho_txt, "roteiro_viagem.txt")
             os.remove(caminho_txt)
@@ -1251,6 +1309,34 @@ def gerar_e_enviar_pdf(telefone):
             
             story.append(Paragraph(dicas_texto, normal_style))
         
+        # === NOVA SEÇÃO: LINKS ÚTEIS E AFILIADOS ===
+        story.append(PageBreak())
+        story.append(Paragraph("Links Úteis e Afiliados", heading_style))
+        
+        links_texto = """
+        <b>Booking.com</b><br/>
+        Reservas de hotéis e hospedagem em todo o mundo<br/>
+        <u>https://www.booking.com/index.en-us.html?aid=336558</u><br/><br/>
+        
+        <b>Passagens Aéreas</b><br/>
+        Encontre as melhores ofertas de voos<br/>
+        <u>https://www.skyscanner.com.br/?previousCultureSource=GEO_LOCATION&redirectedFrom=www.skyscanner.net&associateid=AFF_TRA_19354_00001&irclickid=_ezg3amolgkkfbhjjhy3kl2pmbm2xcigkumasilhl00&irgwc=1&utm_campaign=&utm_medium=affiliate&utm_source=2916765-Viajando%20Bem</u><br/><br/>
+        
+        <b>Aluguel de Carros</b><br/>
+        Alugue carros com os melhores preços<br/>
+        <u>https://www.rentcars.com/pt-br/?requestorid=68</u><br/><br/>
+        
+        <b>Seguro Viagem</b><br/>
+        Seguro viagem com cobertura completa<br/>
+        <u>https://www.seguroviagem.srv.br/?ag=ViajandoBem</u><br/><br/>
+        
+        <i>Gerado por vIAjante</i>
+        """
+        
+        story.append(Paragraph(links_texto, normal_style))
+        story.append(Spacer(1, 0.2*inch))
+        # === FIM DA NOVA SEÇÃO ===
+        
         # Gera o PDF
         doc.build(story)
         
@@ -1265,6 +1351,7 @@ def gerar_e_enviar_pdf(telefone):
         print(f"❌ Erro ao gerar PDF: {e}", flush=True)
         traceback.print_exc()
         enviar_mensagem(telefone, "Desculpe, tive um problema ao gerar o PDF.")
+
 
 # === WEBHOOK ENDPOINTS ===
 @app.route("/webhook", methods=["GET"])
